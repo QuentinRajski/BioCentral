@@ -34,7 +34,9 @@ def installer_gestionnaire_erreurs_global() -> None:
         message = "".join(traceback.format_exception(type_exc, valeur_exc, tb))
         logging.error("Erreur non gérée :\n%s", message)
         try:
-            from PySide6.QtWidgets import QMessageBox
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            if QApplication.instance() is None:
+                return  # pas de fenêtre possible avant la création de QApplication : le log suffira
             QMessageBox.critical(
                 None, "Une erreur est survenue",
                 "Une erreur inattendue s'est produite.\n\n"

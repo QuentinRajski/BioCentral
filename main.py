@@ -8,7 +8,8 @@ import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QMessageBox
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QGuiApplication
+from PySide6.QtCore import Qt
 
 from core import database
 from core.theme import STYLESHEET
@@ -73,6 +74,9 @@ def main():
     installer_gestionnaire_erreurs_global()
     _corriger_icone_barre_des_taches_windows()
 
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
     if ICON_PATH.exists():
@@ -93,7 +97,7 @@ def main():
     window = MainWindow(conn)
     if ICON_PATH.exists():
         window.setWindowIcon(QIcon(str(ICON_PATH)))
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec())
 

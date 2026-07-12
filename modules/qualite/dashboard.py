@@ -13,7 +13,7 @@ qu'une vue toujours globale indépendante du filtre.
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QStyledItemDelegate, QSizePolicy,
-    QCheckBox, QPushButton,
+    QCheckBox, QPushButton, QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
@@ -156,9 +156,18 @@ class DashboardWidget(QWidget):
         self.filtre_sexe.currentIndexChanged.connect(self.rafraichir)
 
         # --- Corps : tableau (pleine hauteur) + stats/percentiles + graphiques ---
-        corps = QHBoxLayout()
+        # Enveloppé dans un QScrollArea : sur petit écran, une barre de défilement
+        # apparaît plutôt que d'écraser le contenu des colonnes.
+        corps_container = QWidget()
+        corps = QHBoxLayout(corps_container)
+        corps.setContentsMargins(0, 0, 0, 0)
         corps.setSpacing(16)
-        root.addLayout(corps, stretch=1)
+
+        corps_scroll = QScrollArea()
+        corps_scroll.setWidgetResizable(True)
+        corps_scroll.setFrameShape(QFrame.NoFrame)
+        corps_scroll.setWidget(corps_container)
+        root.addWidget(corps_scroll, stretch=1)
 
         # ===== Colonne 1 : tableau des échantillons, pleine hauteur =====
         self.table = QTableWidget(0, 5)
@@ -195,9 +204,12 @@ class DashboardWidget(QWidget):
         corps.addLayout(colonne_table, stretch=0)
 
         # ===== Colonne 2 : statistiques descriptives, puis percentiles en dessous =====
-        colonne_stats = QVBoxLayout()
+        colonne_stats_widget = QWidget()
+        colonne_stats_widget.setMinimumWidth(320)
+        colonne_stats = QVBoxLayout(colonne_stats_widget)
+        colonne_stats.setContentsMargins(0, 0, 0, 0)
         colonne_stats.setSpacing(12)
-        corps.addLayout(colonne_stats, stretch=1)
+        corps.addWidget(colonne_stats_widget, stretch=1)
 
         self.stats_table = QTableWidget(7, 2)
         self.stats_table.setHorizontalHeaderLabels(["Statistique", "Valeur"])
@@ -231,9 +243,12 @@ class DashboardWidget(QWidget):
         colonne_stats.addWidget(boxplot_card)
 
         # ===== Colonne 3 : histogrammes empilés, puis camemberts =====
-        colonne_droite = QVBoxLayout()
+        colonne_droite_widget = QWidget()
+        colonne_droite_widget.setMinimumWidth(340)
+        colonne_droite = QVBoxLayout(colonne_droite_widget)
+        colonne_droite.setContentsMargins(0, 0, 0, 0)
         colonne_droite.setSpacing(12)
-        corps.addLayout(colonne_droite, stretch=1)
+        corps.addWidget(colonne_droite_widget, stretch=1)
 
         graph_param_card, self.layout_graph_parametre = self._chart_card(
             f"Distribution du paramètre ({parametre_nom})", accent="CardAccentBleu")
