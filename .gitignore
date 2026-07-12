@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Environnements virtuels
+venv/
+.venv/
+env/
+
+# Build / packaging (PyInstaller, etc.)
+build/
+dist/
+*.spec
+
+# Base de données locale (ne doit jamais être versionnée : données patients)
+*.db
+*.sqlite
+*.sqlite3
+
+# Éditeurs / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
