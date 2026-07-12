@@ -7,6 +7,13 @@ import sys
 import logging
 from pathlib import Path
 
+# Doit être importé avant PySide6 : sur certaines machines (conflit de DLL Windows
+# entre Qt et le runtime CUDA/MKL de PyTorch), charger Qt en premier fait planter
+# (accès mémoire invalide) tout chargement ultérieur de sentence-transformers dans
+# le module Base de connaissances. Importer torch ici, une seule fois, avant Qt,
+# fixe l'ordre de chargement des DLL pour toute la durée du processus.
+import torch  # noqa: F401
+
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QMessageBox
 from PySide6.QtGui import QIcon, QGuiApplication
 from PySide6.QtCore import Qt
@@ -16,6 +23,7 @@ from core.theme import STYLESHEET
 from core.logs import configurer_logs, installer_gestionnaire_erreurs_global, LOG_PATH
 from home import HomePage
 from modules.qualite.shell import QualiteModule
+from modules.connaissances.shell import ConnaissancesModule
 
 ICON_PATH = Path(__file__).parent / "assets" / "icon.ico"
 
@@ -51,15 +59,20 @@ class MainWindow(QMainWindow):
         self.modules = {}
         self.conn = conn
 
+    MODULES_DISPONIBLES = {
+        "qualite": QualiteModule,
+        "connaissances": ConnaissancesModule,
+    }
+
     def _ouvrir_module(self, module_id: str):
         if module_id not in self.modules:
-            if module_id == "qualite":
-                module_widget = QualiteModule(self.conn)
-                module_widget.retour_accueil.connect(self._retour_accueil)
-                self.modules[module_id] = module_widget
-                self.stack.addWidget(module_widget)
-            else:
+            classe_module = self.MODULES_DISPONIBLES.get(module_id)
+            if classe_module is None:
                 return  # futur module non encore implémenté
+            module_widget = classe_module(self.conn)
+            module_widget.retour_accueil.connect(self._retour_accueil)
+            self.modules[module_id] = module_widget
+            self.stack.addWidget(module_widget)
         self.stack.setCurrentWidget(self.modules[module_id])
 
     def _retour_accueil(self):

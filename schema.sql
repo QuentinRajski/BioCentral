@@ -63,6 +63,31 @@ CREATE INDEX idx_qc_echantillons_sexe      ON qc_echantillons(sexe);
 INSERT INTO app_metadata (cle, valeur) VALUES ('qc_schema_version', '1');
 
 -- ============================================================
+-- Module Base de connaissances (préfixe kb_)
+-- ============================================================
+
+CREATE TABLE kb_documents (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    titre          TEXT NOT NULL,          -- nom du livre/document, éditable
+    fichier_source TEXT NOT NULL,          -- nom du fichier PDF importé
+    nombre_pages   INTEGER,
+    date_import    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE kb_passages (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id  INTEGER NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
+    page         INTEGER NOT NULL,
+    ordre        INTEGER NOT NULL,        -- position du passage dans le document
+    texte        TEXT NOT NULL,           -- texte brut du passage (~300-500 mots)
+    embedding    BLOB NOT NULL            -- vecteur numpy sérialisé (float32)
+);
+
+CREATE INDEX idx_kb_passages_document ON kb_passages(document_id);
+
+INSERT INTO app_metadata (cle, valeur) VALUES ('kb_schema_version', '1');
+
+-- ============================================================
 -- Futurs modules : suivre le même principe, ex. pour un module "modx" :
 --   CREATE TABLE modx_xxx (...);
 --   INSERT INTO app_metadata (cle, valeur) VALUES ('modx_schema_version', '1');

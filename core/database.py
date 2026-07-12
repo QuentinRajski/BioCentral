@@ -49,6 +49,26 @@ MIGRATIONS = {
     # "qc_schema_version": {
     #     2: "ALTER TABLE qc_echantillons ADD COLUMN commentaire TEXT;",
     # },
+    "kb_schema_version": {
+        1: """
+            CREATE TABLE kb_documents (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                titre          TEXT NOT NULL,
+                fichier_source TEXT NOT NULL,
+                nombre_pages   INTEGER,
+                date_import    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE kb_passages (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id  INTEGER NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
+                page         INTEGER NOT NULL,
+                ordre        INTEGER NOT NULL,
+                texte        TEXT NOT NULL,
+                embedding    BLOB NOT NULL
+            );
+            CREATE INDEX idx_kb_passages_document ON kb_passages(document_id);
+        """,
+    },
 }
 
 

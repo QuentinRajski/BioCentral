@@ -31,6 +31,12 @@ AVAILABLE_MODULES = [
         "description": "Centralisation et statistiques des résultats de biologie médicale",
         "icone": ICONE_MODULE_QUALITE,
     },
+    {
+        "id": "connaissances",
+        "nom": "Base de connaissances",
+        "description": "Recherche sémantique dans des documents biologiques (PDF)",
+        "icone": None,
+    },
     # {"id": "modx", "nom": "...", "description": "...", "icone": None},
 ]
 
