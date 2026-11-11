@@ -64,6 +64,20 @@ PALETTES = {
         "table_row_pair": "#FFFFFF",
         "table_row_impair": "#FAF9F5",
         "table_highlight": "#FBEAEA",
+        "table_warning": "#FDF3DC",
+        # Graphiques dessinés à la main (core/plot.py) et pastilles de statut.
+        "accent_graph": "#378ADD",
+        "graph_secondaire": "#7F77DD",
+        "graph_tertiaire": "#D4537E",
+        "statut_ok": "#2E9E6B",
+        "statut_alerte": "#D8900F",
+        "statut_rejet": "#D64545",
+        "statut_neutre": "#8A887E",
+        "badge_ok_bg": "#E3F4EC",
+        "badge_alerte_bg": "#FCF0D8",
+        "badge_rejet_bg": "#FBE6E6",
+        "danger_bg": "#C0392B",
+        "danger_hover": "#D64545",
     },
     "dark": {
         "bg": "#1E1F22",
@@ -99,6 +113,19 @@ PALETTES = {
         "table_row_pair": "#232428",
         "table_row_impair": "#28292E",
         "table_highlight": "#4A2C2C",
+        "table_warning": "#4A3F22",
+        "accent_graph": "#4F9FEA",
+        "graph_secondaire": "#9A93EA",
+        "graph_tertiaire": "#E0709A",
+        "statut_ok": "#4CC28C",
+        "statut_alerte": "#F0B03C",
+        "statut_rejet": "#F06A6A",
+        "statut_neutre": "#8F8D86",
+        "badge_ok_bg": "#1F3A2E",
+        "badge_alerte_bg": "#45381C",
+        "badge_rejet_bg": "#4A2525",
+        "danger_bg": "#B93A2E",
+        "danger_hover": "#D64545",
     },
 }
 
@@ -143,14 +170,15 @@ QPushButton#PrimaryButton:hover {{
     background-color: {primary_hover};
 }}
 
-QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QTextEdit {{
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QTextEdit, QPlainTextEdit, QDateEdit, QDateTimeEdit {{
     border: 1px solid {input_border};
     border-radius: 8px;
     padding: 6px 10px;
     background-color: {input_bg};
     min-height: 20px;
 }}
-QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus, QTextEdit:focus {{
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus, QTextEdit:focus,
+QPlainTextEdit:focus, QDateEdit:focus, QDateTimeEdit:focus {{
     border: 1px solid {focus_border};
 }}
 QComboBox::drop-down {{
@@ -374,6 +402,145 @@ QPushButton#CarteModule:hover {{
     border-left-color: """ + ACCENT_BLEU + """;
     border-right-color: """ + ACCENT_BLEU + """;
     border-bottom-color: """ + ACCENT_BLEU + """;
+}}
+
+QPushButton:disabled {{
+    color: {muted};
+    border-color: {table_item_border};
+}}
+QPushButton#DangerButton {{
+    background-color: {danger_bg};
+    color: #FFFFFF;
+    border: none;
+    font-weight: 600;
+    padding: 8px 20px;
+}}
+QPushButton#DangerButton:hover {{
+    background-color: {danger_hover};
+}}
+QPushButton#LienDiscret {{
+    background-color: transparent;
+    border: none;
+    color: {accent_text};
+    padding: 2px 4px;
+    text-align: left;
+}}
+QPushButton#LienDiscret:hover {{
+    text-decoration: underline;
+}}
+
+QDialog, QMessageBox {{
+    background-color: {bg};
+}}
+
+/* --- Onglets --- */
+QTabWidget::pane {{
+    border: none;
+    border-top: 1px solid {card_border};
+    top: -1px;
+}}
+QTabBar {{
+    background: transparent;
+}}
+QTabBar::tab {{
+    background: transparent;
+    color: {header_text};
+    padding: 8px 16px;
+    margin-right: 2px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-weight: 600;
+}}
+QTabBar::tab:hover {{
+    color: {accent_text};
+}}
+QTabBar::tab:selected {{
+    color: {accent_text};
+    border-bottom: 2px solid {accent_text};
+}}
+
+/* --- Arbres et zones de texte en carte --- */
+QTreeWidget, QTextBrowser {{
+    background-color: {card_bg};
+    border: 1px solid {card_border};
+    border-radius: 12px;
+    selection-background-color: {selection_bg};
+    selection-color: {selection_text};
+}}
+QTextBrowser {{
+    padding: 8px;
+}}
+
+QGroupBox {{
+    border: 1px solid {card_border};
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 10px 8px 8px 8px;
+    background-color: {card_bg};
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 4px;
+    color: {header_text};
+    font-weight: 600;
+}}
+
+QProgressBar {{
+    border: 1px solid {input_border};
+    border-radius: 6px;
+    background-color: {input_bg};
+    text-align: center;
+    min-height: 14px;
+}}
+QProgressBar::chunk {{
+    background-color: {primary_bg};
+    border-radius: 5px;
+}}
+
+QSplitter::handle {{
+    background-color: transparent;
+}}
+QSplitter::handle:horizontal {{ width: 10px; }}
+QSplitter::handle:vertical {{ height: 10px; }}
+
+QRadioButton {{
+    spacing: 8px;
+}}
+
+/* --- Pastilles de statut (contrôle de qualité, conformité) --- */
+QLabel#BadgeOk, QLabel#BadgeAlerte, QLabel#BadgeRejet, QLabel#BadgeNeutre {{
+    border-radius: 10px;
+    padding: 3px 10px;
+    font-weight: 600;
+    font-size: 12px;
+}}
+QLabel#BadgeOk {{ background-color: {badge_ok_bg}; color: {statut_ok}; }}
+QLabel#BadgeAlerte {{ background-color: {badge_alerte_bg}; color: {statut_alerte}; }}
+QLabel#BadgeRejet {{ background-color: {badge_rejet_bg}; color: {statut_rejet}; }}
+QLabel#BadgeNeutre {{ background-color: {list_hover_bg}; color: {header_text}; }}
+
+QLabel#ValeurCle {{
+    font-size: 20px;
+    font-weight: 700;
+    color: {text};
+}}
+QLabel#SousTitre {{
+    font-size: 13px;
+    font-weight: 600;
+    color: {header_text};
+}}
+QLabel#Avertissement {{
+    color: {statut_alerte};
+    font-size: 12px;
+}}
+QLabel#Formule {{
+    color: {header_text};
+    font-family: "Consolas", "Cascadia Mono", monospace;
+    font-size: 12px;
+    background-color: {list_hover_bg};
+    border-radius: 6px;
+    padding: 6px 8px;
 }}
 
 QScrollBar:vertical {{
