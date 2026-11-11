@@ -4,7 +4,8 @@ Tableau de bord d'un paramètre.
 Disposition (validée avec l'utilisateur — voir la conversation de conception) :
   - Bloc de gauche : tableau des échantillons en haut, puis statistiques
     descriptives (liste verticale) et tableau de percentiles côte à côte.
-  - Bloc de droite : les deux histogrammes empilés, puis les deux camemberts.
+  - Bloc de droite : les deux histogrammes empilés, puis l'évolution dans le
+    temps, puis les notes libres, puis les deux camemberts côte à côte.
 
 Les camemberts (tranches d'âge, sexe) réagissent aux mêmes filtres que le
 reste de la page — décision explicite : "tant pis si ça affiche 100%" plutôt
@@ -13,11 +14,12 @@ qu'une vue toujours globale indépendante du filtre.
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QStyledItemDelegate, QSizePolicy,
-    QCheckBox, QPushButton, QScrollArea, QFrame,
+    QCheckBox, QPushButton, QScrollArea, QFrame, QTextEdit, QToolButton, QMenu,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont
 
+from core import theme
 from core.stats import compute_stats, PERCENTILES
 from core.charts import build_histogram, build_pie, build_boxplot, build_temporal, COULEUR_SECONDAIRE
 from core.tests_statistiques import test_normalite, detecter_aberrantes, comparer_deux_groupes
@@ -46,32 +48,31 @@ def _card(inner_layout) -> QWidget:
     return w
 
 
-COULEUR_LIGNE_PAIRE = QColor("#FFFFFF")
-COULEUR_LIGNE_IMPAIRE = QColor("#FAF9F5")
-COULEUR_HORS_BORNES = QColor("#FBEAEA")  # rouge pâle : résultat sous/sur le domaine de mesure
-
-
-def _style_table(table: QTableWidget) -> None:
+def _style_table(table: QTableWidget, hauteur_ligne: int = 34) -> None:
     """Polish commun à tous les tableaux : évite le look 'tableur' par défaut de Qt.
     L'alternance de couleur est gérée manuellement ligne par ligne (pas via QSS),
-    pour pouvoir la combiner avec un surlignage ponctuel sans conflit de priorité."""
+    pour pouvoir la combiner avec un surlignage ponctuel sans conflit de priorité.
+    hauteur_ligne plus compacte pour les petits tableaux clé/valeur (statistiques,
+    tests, percentiles) : ça ne réduit aucune donnée affichée, juste l'espace
+    perdu autour, ce qui évite un défilement pour voir le bas de la page."""
     table.verticalHeader().setVisible(False)
     table.setShowGrid(False)
     table.setAlternatingRowColors(False)
     table.setSelectionBehavior(QAbstractItemView.SelectRows)
     table.setEditTriggers(QAbstractItemView.NoEditTriggers)
     table.horizontalHeader().setHighlightSections(False)
-    table.verticalHeader().setDefaultSectionSize(34)
+    table.verticalHeader().setDefaultSectionSize(hauteur_ligne)
     table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-    table.horizontalHeader().setFixedHeight(34)
+    table.horizontalHeader().setFixedHeight(hauteur_ligne)
     table.setObjectName("Card")
     table.setItemDelegate(_DelegueCouleurFond(table))
 
 
 def _couleur_ligne(index: int, surlignee: bool = False) -> QColor:
+    pal = theme.palette()
     if surlignee:
-        return COULEUR_HORS_BORNES
-    return COULEUR_LIGNE_IMPAIRE if index % 2 else COULEUR_LIGNE_PAIRE
+        return QColor(pal["table_highlight"])  # rouge pâle : résultat sous/sur le domaine de mesure
+    return QColor(pal["table_row_impair"]) if index % 2 else QColor(pal["table_row_pair"])
 
 
 class _ItemTriable(QTableWidgetItem):
@@ -116,6 +117,10 @@ def _infobulle_percentile(p) -> str:
     return f"{p} % des résultats filtrés sont inférieurs ou égaux à cette valeur."
 
 
+HAUTEUR_CAMEMBERT = 380  # même hauteur pour les deux camemberts, posés côte à côte
+HAUTEUR_LIGNE_COMPACTE = 28  # tableaux clé/valeur (stats, tests, percentiles) : moins de perte d'espace
+
+
 def _formater_p(p: float) -> str:
     return "p < 0,0001" if p < 0.0001 else f"p = {p}".replace(".", ",")
 
@@ -128,27 +133,44 @@ class DashboardWidget(QWidget):
         self.parametre_nom = parametre_nom
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 24, 24, 24)
+        root.setContentsMargins(24, 16, 24, 16)
         root.setSpacing(14)
 
         # --- En-tête + filtres ---
         header = QHBoxLayout()
+        header.setSpacing(8)
         titre = QLabel(f"Paramètre : {parametre_nom}")
         titre.setObjectName("TitrePage")
         header.addWidget(titre)
         header.addStretch()
 
+        label_tranche = QLabel("Tranche d'âge")
+        label_tranche.setObjectName("Muted")
+        header.addWidget(label_tranche)
         self.filtre_tranche = QComboBox()
+        header.addWidget(self.filtre_tranche)
+
+        header.addSpacing(8)
+        label_sexe = QLabel("Sexe")
+        label_sexe.setObjectName("Muted")
+        header.addWidget(label_sexe)
         self.filtre_sexe = QComboBox()
         self.filtre_sexe.addItems(["Tous", "Féminin", "Masculin"])
-        btn_modifier_tranches = QPushButton("✎ Modifier les tranches")
-        btn_modifier_tranches.clicked.connect(self._ouvrir_dialogue_tranches)
-        header.addWidget(btn_modifier_tranches)
-        btn_modifier_domaine = QPushButton("✎ Modifier le domaine")
-        btn_modifier_domaine.clicked.connect(self._ouvrir_dialogue_domaine)
-        header.addWidget(btn_modifier_domaine)
-        header.addWidget(self.filtre_tranche)
         header.addWidget(self.filtre_sexe)
+
+        header.addSpacing(16)
+        btn_parametres = QToolButton()
+        btn_parametres.setObjectName("ToggleTheme")
+        btn_parametres.setFixedSize(34, 34)
+        btn_parametres.setCursor(Qt.PointingHandCursor)
+        btn_parametres.setText("⚙")
+        btn_parametres.setToolTip("Réglages de ce paramètre")
+        btn_parametres.setPopupMode(QToolButton.InstantPopup)
+        menu_parametres = QMenu(btn_parametres)
+        menu_parametres.addAction("✎ Modifier les tranches d'âge…", self._ouvrir_dialogue_tranches)
+        menu_parametres.addAction("✎ Modifier le domaine de mesure…", self._ouvrir_dialogue_domaine)
+        btn_parametres.setMenu(menu_parametres)
+        header.addWidget(btn_parametres)
         root.addLayout(header)
 
         self._charger_tranches()
@@ -213,33 +235,33 @@ class DashboardWidget(QWidget):
 
         self.stats_table = QTableWidget(7, 2)
         self.stats_table.setHorizontalHeaderLabels(["Statistique", "Valeur"])
-        _style_table(self.stats_table)
+        _style_table(self.stats_table, HAUTEUR_LIGNE_COMPACTE)
         self.stats_table.setObjectName("CardAccentBleu")
         self.stats_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.stats_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.stats_table.setFixedHeight(34 * 8 + 4)
+        self.stats_table.setFixedHeight(HAUTEUR_LIGNE_COMPACTE * 8 + 4)
         colonne_stats.addWidget(self.stats_table, stretch=0)
 
         self.tests_table = QTableWidget(3, 2)
         self.tests_table.setHorizontalHeaderLabels(["Test statistique", "Résultat"])
-        _style_table(self.tests_table)
+        _style_table(self.tests_table, HAUTEUR_LIGNE_COMPACTE)
         self.tests_table.setObjectName("CardAccentBleu")
         self.tests_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tests_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.tests_table.setFixedHeight(34 * 4 + 4)
+        self.tests_table.setFixedHeight(HAUTEUR_LIGNE_COMPACTE * 4 + 4)
         colonne_stats.addWidget(self.tests_table, stretch=0)
 
         self.percentile_table = QTableWidget(len(PERCENTILES), 2)
         self.percentile_table.setHorizontalHeaderLabels(["Percentile", "Valeur"])
-        _style_table(self.percentile_table)
+        _style_table(self.percentile_table, HAUTEUR_LIGNE_COMPACTE)
         self.percentile_table.setObjectName("CardAccentBleu")
         self.percentile_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.percentile_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.percentile_table.setMinimumHeight(34 * (len(PERCENTILES) + 1) + 4)
+        self.percentile_table.setMinimumHeight(HAUTEUR_LIGNE_COMPACTE * (len(PERCENTILES) + 1) + 4)
         colonne_stats.addWidget(self.percentile_table, stretch=1)
 
         boxplot_card, self.layout_boxplot = self._chart_card(
-            "Résumé (P5 · P25 · médiane · P75 · P95)", accent="CardAccentBleu", hauteur=400)
+            "Résumé (P5 · P25 · médiane · P75 · P95)", accent="CardAccentBleu", hauteur=300)
         colonne_stats.addWidget(boxplot_card)
 
         # ===== Colonne 3 : histogrammes empilés, puis camemberts =====
@@ -247,24 +269,73 @@ class DashboardWidget(QWidget):
         colonne_droite_widget.setMinimumWidth(340)
         colonne_droite = QVBoxLayout(colonne_droite_widget)
         colonne_droite.setContentsMargins(0, 0, 0, 0)
-        colonne_droite.setSpacing(12)
+        colonne_droite.setSpacing(10)
         corps.addWidget(colonne_droite_widget, stretch=1)
 
         graph_param_card, self.layout_graph_parametre = self._chart_card(
             f"Distribution du paramètre ({parametre_nom})", accent="CardAccentBleu")
         graph_ages_card, self.layout_graph_ages = self._chart_card(
             "Distribution des âges", accent="CardAccentBleu")
-        camembert_tranches_card, self.layout_camembert_tranches = self._chart_card(
-            "Répartition par tranche d'âge", accent="CardAccentBleu")
-        camembert_sexe_card, self.layout_camembert_sexe = self._chart_card(
-            "Répartition par sexe", accent="CardAccentBleu")
-        temporel_card, self.layout_temporel = self._chart_card(
-            "Évolution dans le temps", accent="CardAccentBleu")
-        for w in (graph_param_card, graph_ages_card, camembert_tranches_card,
-                  camembert_sexe_card, temporel_card):
+        for w in (graph_param_card, graph_ages_card):
             colonne_droite.addWidget(w)
 
+        camembert_tranches_card, self.layout_camembert_tranches = self._chart_card(
+            "Répartition par tranche d'âge", accent="CardAccentVert", hauteur=HAUTEUR_CAMEMBERT)
+        camembert_sexe_card, self.layout_camembert_sexe = self._chart_card(
+            "Répartition par sexe", accent="CardAccentViolet", hauteur=HAUTEUR_CAMEMBERT)
+        ligne_camemberts = QHBoxLayout()
+        ligne_camemberts.setSpacing(12)
+        ligne_camemberts.addWidget(camembert_tranches_card, stretch=1)
+        ligne_camemberts.addWidget(camembert_sexe_card, stretch=1)
+        colonne_droite.addLayout(ligne_camemberts)
+
+        temporel_card, self.layout_temporel = self._chart_card(
+            "Évolution dans le temps", accent="CardAccentBleu")
+        colonne_droite.addWidget(temporel_card)
+
+        colonne_droite.addWidget(self._creer_carte_notes())
+
         self.rafraichir()
+        theme.ThemeManager.instance().changed.connect(self.rafraichir)
+
+    def _creer_carte_notes(self) -> QWidget:
+        """Notes libres propres à ce paramètre — enregistrées en base automatiquement
+        après une courte pause de frappe (pas de bouton « Enregistrer » à retenir)."""
+        layout = QVBoxLayout()
+        layout.setContentsMargins(16, 10, 16, 12)
+        layout.setSpacing(6)
+
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setPlaceholderText(
+            "Ajoutez une remarque, une anomalie observée, un rappel…\nEnregistré automatiquement.")
+        self.notes_edit.setFixedHeight(90)
+        self.notes_edit.setPlainText(self._charger_notes())
+        self.notes_edit.textChanged.connect(self._sur_notes_modifiees)
+        layout.addWidget(self.notes_edit)
+
+        self._minuteur_notes = QTimer(self)
+        self._minuteur_notes.setSingleShot(True)
+        self._minuteur_notes.timeout.connect(self._enregistrer_notes)
+
+        card = _card(layout)
+        card.setObjectName("CardAccentBleu")
+        return card
+
+    def _charger_notes(self) -> str:
+        row = self.conn.execute(
+            "SELECT notes FROM qc_parametres WHERE id = ?", (self.parametre_id,)
+        ).fetchone()
+        return row[0] if row and row[0] else ""
+
+    def _sur_notes_modifiees(self):
+        self._minuteur_notes.start(600)  # attend une pause de frappe avant d'écrire en base
+
+    def _enregistrer_notes(self):
+        self.conn.execute(
+            "UPDATE qc_parametres SET notes = ? WHERE id = ?",
+            (self.notes_edit.toPlainText(), self.parametre_id),
+        )
+        self.conn.commit()
 
     def _chart_card(self, titre: str, accent: str = "Card", hauteur: int = 210):
         """Carte contenant un titre fixe + un graphique remplacé à chaque rafraîchissement."""

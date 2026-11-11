@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QRectF
 from PySide6.QtGui import QColor
 
+from core import theme
 from core.stats import compute_stats
 
 FRACTION_ROLE = Qt.UserRole + 1
@@ -109,14 +110,7 @@ class VueEnsemble(QWidget):
         self.arbre.setAlternatingRowColors(False)
         self.arbre.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.arbre.setSortingEnabled(True)
-        self.arbre.setStyleSheet(
-            "QTreeWidget { border: 1px solid #E1DFD5; border-top: 3px solid #378ADD; "
-            "border-radius: 12px; background-color: #FFFFFF; }"
-            "QTreeWidget::item { border-right: 1px solid #E1DFD5; padding: 6px 4px; }"
-            "QHeaderView::section { background-color: #FFFFFF; border: none; "
-            "border-bottom: 1px solid #D3D1C7; border-right: 1px solid #E1DFD5; "
-            "padding: 8px 4px; font-weight: 600; font-size: 12px; color: #5F5E5A; }"
-        )
+        self._appliquer_style_arbre()
         self.arbre.setItemDelegate(_DelegueBarreDonnees(self.arbre))
         self.arbre.itemDoubleClicked.connect(self._sur_double_clic)
         header = self.arbre.header()
@@ -127,6 +121,22 @@ class VueEnsemble(QWidget):
             header.setSectionResizeMode(col, QHeaderView.Stretch)
         layout.addWidget(self.arbre)
 
+        self.rafraichir()
+        theme.ThemeManager.instance().changed.connect(self._sur_changement_theme)
+
+    def _appliquer_style_arbre(self) -> None:
+        pal = theme.palette()
+        self.arbre.setStyleSheet(
+            f"QTreeWidget {{ border: 1px solid {pal['card_border']}; border-top: 3px solid #378ADD; "
+            f"border-radius: 12px; background-color: {pal['card_bg']}; }}"
+            f"QTreeWidget::item {{ border-right: 1px solid {pal['card_border']}; padding: 6px 4px; }}"
+            f"QHeaderView::section {{ background-color: {pal['card_bg']}; border: none; "
+            f"border-bottom: 1px solid {pal['btn_border']}; border-right: 1px solid {pal['card_border']}; "
+            f"padding: 8px 4px; font-weight: 600; font-size: 12px; color: {pal['header_text']}; }}"
+        )
+
+    def _sur_changement_theme(self):
+        self._appliquer_style_arbre()
         self.rafraichir()
 
     def _sur_double_clic(self, item: QTreeWidgetItem, colonne: int):
@@ -176,8 +186,9 @@ class VueEnsemble(QWidget):
         parametres = self.conn.execute(
             "SELECT id, nom, date_import FROM qc_parametres ORDER BY nom"
         ).fetchall()
-        couleur_paire = QColor("#FFFFFF")
-        couleur_impaire = QColor("#FAF9F5")
+        pal = theme.palette()
+        couleur_paire = QColor(pal["table_row_pair"])
+        couleur_impaire = QColor(pal["table_row_impair"])
 
         for i, (parametre_id, nom, date_import) in enumerate(parametres):
             couleur = couleur_impaire if i % 2 else couleur_paire
@@ -203,7 +214,7 @@ class VueEnsemble(QWidget):
                 item_tranche = _ItemArbreTriable()
                 item_tranche.setData(0, PARAMETRE_ID_ROLE, parametre_id)
                 valeurs_t = self._valeurs_ligne(libelle, r, h, f, s, sup, "—")
-                self._remplir_ligne(item_tranche, valeurs_t, r.n if r else None, QColor("#F7F6F2"))
+                self._remplir_ligne(item_tranche, valeurs_t, r.n if r else None, QColor(pal["bg"]))
                 item_parametre.addChild(item_tranche)
 
         self.arbre.setSortingEnabled(True)

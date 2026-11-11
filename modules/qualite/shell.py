@@ -4,14 +4,18 @@ paramètres importés) + zone de contenu qui bascule entre l'écran d'import
 et le tableau de bord du paramètre sélectionné.
 """
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QStackedWidget,
 )
 from PySide6.QtCore import Signal
 
+from core.nav_widgets import breadcrumb_label, entete_barre_laterale, section_label
+
 from .import_screen import ImportScreen
 from .dashboard import DashboardWidget
 from .vue_ensemble import VueEnsemble
+
+FIL_ARIANE_PREFIXE = "BioCentral › Contrôle qualité"
 
 
 class QualiteModule(QWidget):
@@ -32,19 +36,21 @@ class QualiteModule(QWidget):
         sidebar.setFixedWidth(220)
         side_layout = QVBoxLayout(sidebar)
         side_layout.setContentsMargins(12, 12, 12, 12)
+        side_layout.setSpacing(4)
 
-        btn_accueil = QPushButton("Retour vers Accueil")
-        btn_accueil.setObjectName("PrimaryButton")
-        btn_accueil.clicked.connect(self.retour_accueil.emit)
-        side_layout.addWidget(btn_accueil)
-        side_layout.addSpacing(16)
+        side_layout.addWidget(entete_barre_laterale(self.conn, self.retour_accueil.emit))
+        side_layout.addSpacing(14)
 
-        btn_vue_ensemble = QPushButton("⊞ Vue d'ensemble")
-        btn_vue_ensemble.setObjectName("BoutonAccueil")
-        btn_vue_ensemble.clicked.connect(self._ouvrir_vue_ensemble)
-        side_layout.addWidget(btn_vue_ensemble)
-        side_layout.addSpacing(8)
+        side_layout.addWidget(section_label("Navigation"))
+        self.btn_vue_ensemble = QPushButton("⊞ Vue d'ensemble")
+        self.btn_vue_ensemble.setObjectName("BoutonAccueil")
+        self.btn_vue_ensemble.setCheckable(True)
+        self.btn_vue_ensemble.setChecked(True)
+        self.btn_vue_ensemble.clicked.connect(self._ouvrir_vue_ensemble)
+        side_layout.addWidget(self.btn_vue_ensemble)
+        side_layout.addSpacing(14)
 
+        side_layout.addWidget(section_label("Paramètres importés"))
         self.recherche = QLineEdit()
         self.recherche.setPlaceholderText("Rechercher un paramètre")
         self.recherche.textChanged.connect(self._filtrer_liste)
@@ -61,7 +67,14 @@ class QualiteModule(QWidget):
 
         root.addWidget(sidebar)
 
-        # --- Zone de contenu ---
+        # --- Zone de contenu : fil d'Ariane + contenu qui bascule ---
+        colonne_contenu = QVBoxLayout()
+        colonne_contenu.setContentsMargins(0, 0, 0, 0)
+        colonne_contenu.setSpacing(0)
+
+        self.fil_ariane = breadcrumb_label()
+        colonne_contenu.addWidget(self.fil_ariane)
+
         self.contenu = QStackedWidget()
         self.vue_ensemble = VueEnsemble(self.conn)
         self.vue_ensemble.parametre_choisi.connect(self._ouvrir_parametre_par_id)
@@ -71,9 +84,17 @@ class QualiteModule(QWidget):
         self.import_screen.import_termine.connect(self._sur_import_termine)
         self.contenu.addWidget(self.import_screen)
 
-        root.addWidget(self.contenu, stretch=1)
+        colonne_contenu.addWidget(self.contenu, stretch=1)
+
+        contenu_widget = QWidget()
+        contenu_widget.setLayout(colonne_contenu)
+        root.addWidget(contenu_widget, stretch=1)
 
         self._charger_parametres()
+        self._definir_fil_ariane("Vue d'ensemble")
+
+    def _definir_fil_ariane(self, suffixe: str) -> None:
+        self.fil_ariane.setText(f"{FIL_ARIANE_PREFIXE} › {suffixe}")
 
     def _charger_parametres(self):
         self.liste_parametres.clear()
@@ -89,6 +110,13 @@ class QualiteModule(QWidget):
             item = self.liste_parametres.item(i)
             item.setHidden(texte not in item.text().lower())
 
+    def _selectionner_parametre_dans_liste(self, parametre_id: int) -> None:
+        for i in range(self.liste_parametres.count()):
+            item = self.liste_parametres.item(i)
+            if item.data(1000) == parametre_id:
+                self.liste_parametres.setCurrentItem(item)
+                return
+
     def _ouvrir_parametre(self, item: QListWidgetItem):
         self._ouvrir_parametre_par_id(item.data(1000), item.text())
 
@@ -97,13 +125,24 @@ class QualiteModule(QWidget):
             self.dashboards[parametre_id] = DashboardWidget(self.conn, parametre_id, nom)
             self.contenu.addWidget(self.dashboards[parametre_id])
         self.contenu.setCurrentWidget(self.dashboards[parametre_id])
+        # Le tableau de bord peut être ouvert depuis la vue d'ensemble (double-clic) :
+        # on aligne l'état de la barre latérale (case cochée + sélection) dans tous les cas.
+        self.btn_vue_ensemble.setChecked(False)
+        self._selectionner_parametre_dans_liste(parametre_id)
+        self._definir_fil_ariane(nom)
 
     def _ouvrir_import(self):
         self.contenu.setCurrentWidget(self.import_screen)
+        self.btn_vue_ensemble.setChecked(False)
+        self.liste_parametres.clearSelection()
+        self._definir_fil_ariane("Importer un paramètre")
 
     def _ouvrir_vue_ensemble(self):
         self.vue_ensemble.rafraichir()
         self.contenu.setCurrentWidget(self.vue_ensemble)
+        self.btn_vue_ensemble.setChecked(True)
+        self.liste_parametres.clearSelection()
+        self._definir_fil_ariane("Vue d'ensemble")
 
     def _sur_import_termine(self):
         self._charger_parametres()
@@ -114,5 +153,4 @@ class QualiteModule(QWidget):
             self.contenu.removeWidget(widget)
             widget.deleteLater()
         self.dashboards.clear()
-        self.vue_ensemble.rafraichir()
-        self.contenu.setCurrentWidget(self.vue_ensemble)
+        self._ouvrir_vue_ensemble()

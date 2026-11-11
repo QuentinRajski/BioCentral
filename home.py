@@ -11,33 +11,37 @@ les boutons se stylisent de façon fiable partout dans l'application, contrairem
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog, QMessageBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
+    QFileDialog, QMessageBox, QGraphicsDropShadowEffect,
 )
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap, QColor
 
-from core import database
+from core import database, theme
 from core.version import VERSION
 from core.logs import LOG_PATH
+from core.theme_toggle import ThemeToggleButton
 
 ICON_PATH = Path(__file__).parent / "assets" / "icon.png"
-ICONE_MODULE_QUALITE = Path(__file__).parent / "assets" / "icone_module_qualite.png"
 
-# Registre des modules disponibles. Un futur module ajoute simplement une entrée ici.
+# Registre des modules disponibles. Un futur module ajoute simplement une entrée ici
+# (la grille de cartes s'adapte automatiquement au nombre de modules).
 AVAILABLE_MODULES = [
     {
         "id": "qualite",
         "nom": "Contrôle qualité",
         "description": "Centralisation et statistiques des résultats de biologie médicale",
-        "icone": ICONE_MODULE_QUALITE,
+        "emoji": "🧪",
+        "accent": theme.ACCENT_BLEU,
     },
     {
         "id": "connaissances",
         "nom": "Base de connaissances",
         "description": "Recherche sémantique dans des documents biologiques (PDF)",
-        "icone": None,
+        "emoji": "📚",
+        "accent": theme.ACCENT_VERT,
     },
-    # {"id": "modx", "nom": "...", "description": "...", "icone": None},
+    # {"id": "modx", "nom": "...", "description": "...", "emoji": "...", "accent": theme.ACCENT_VIOLET},
 ]
 
 
@@ -49,7 +53,22 @@ class HomePage(QWidget):
         super().__init__()
         self.conn = conn
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 40, 40, 32)
+        root.setContentsMargins(24, 16, 24, 32)
+
+        # --- Coin supérieur : réglages de l'appli (à propos, thème), séparés des
+        # actions sur les données pour ne pas tout mélanger dans le pied de page ---
+        coin_haut = QHBoxLayout()
+        coin_haut.addStretch()
+        btn_a_propos = QPushButton("ℹ")
+        btn_a_propos.setObjectName("ToggleTheme")
+        btn_a_propos.setFixedSize(34, 34)
+        btn_a_propos.setCursor(Qt.PointingHandCursor)
+        btn_a_propos.setToolTip("À propos")
+        btn_a_propos.clicked.connect(self._afficher_a_propos)
+        coin_haut.addWidget(btn_a_propos)
+        coin_haut.addWidget(ThemeToggleButton(self.conn))
+        root.addLayout(coin_haut)
+
         root.addStretch(2)
 
         contenu = QVBoxLayout()
@@ -70,19 +89,21 @@ class HomePage(QWidget):
         titre.setAlignment(Qt.AlignCenter)
         titre.setTextInteractionFlags(Qt.NoTextInteraction)
         contenu.addWidget(titre)
-        contenu.addSpacing(28)
 
-        for module in AVAILABLE_MODULES:
-            bouton = QPushButton(module["nom"])
-            bouton.setObjectName("CarteModule")
-            bouton.setFixedSize(280, 72)
-            bouton.setCursor(Qt.PointingHandCursor)
-            icone = module.get("icone")
-            if icone and Path(icone).exists():
-                bouton.setIcon(QIcon(str(icone)))
-                bouton.setIconSize(QSize(32, 32))
-            bouton.clicked.connect(lambda checked=False, m=module["id"]: self.module_selected.emit(m))
-            contenu.addWidget(bouton, alignment=Qt.AlignCenter)
+        sous_titre = QLabel("Vos outils de biologie médicale, centralisés.")
+        sous_titre.setObjectName("Muted")
+        sous_titre.setAlignment(Qt.AlignCenter)
+        contenu.addWidget(sous_titre)
+        contenu.addSpacing(32)
+
+        grille_widget = QWidget()
+        grille = QGridLayout(grille_widget)
+        grille.setHorizontalSpacing(24)
+        grille.setVerticalSpacing(24)
+        colonnes = min(len(AVAILABLE_MODULES), 3)
+        for i, module in enumerate(AVAILABLE_MODULES):
+            grille.addWidget(self._creer_carte_module(module), i // colonnes, i % colonnes)
+        contenu.addWidget(grille_widget, alignment=Qt.AlignCenter)
 
         root.addLayout(contenu)
         root.addStretch(3)
@@ -99,9 +120,6 @@ class HomePage(QWidget):
         btn_importer.clicked.connect(self._importer_bdd)
         ligne_bdd.addWidget(btn_exporter)
         ligne_bdd.addWidget(btn_importer)
-        btn_a_propos = QPushButton("ℹ À propos")
-        btn_a_propos.clicked.connect(self._afficher_a_propos)
-        ligne_bdd.addWidget(btn_a_propos)
         ligne_bdd.addStretch()
         pied.addLayout(ligne_bdd)
 
@@ -111,6 +129,37 @@ class HomePage(QWidget):
         pied.addWidget(note)
 
         root.addLayout(pied)
+
+    def _creer_carte_module(self, module: dict) -> QWidget:
+        """Carte d'un module : tuile cliquable (icône + nom, accent de couleur propre
+        à chaque module) surmontée d'une légère ombre portée, avec sa description
+        juste en dessous — plus parlant qu'un simple bouton texte."""
+        conteneur = QWidget()
+        disposition = QVBoxLayout(conteneur)
+        disposition.setContentsMargins(0, 0, 0, 0)
+        disposition.setSpacing(10)
+
+        tuile = QPushButton(f"{module['emoji']}\n{module['nom']}")
+        tuile.setObjectName("CarteModule")
+        tuile.setFixedSize(220, 130)
+        tuile.setCursor(Qt.PointingHandCursor)
+        tuile.setStyleSheet(f"border-top: 3px solid {module['accent']};")
+        ombre = QGraphicsDropShadowEffect(tuile)
+        ombre.setBlurRadius(24)
+        ombre.setOffset(0, 6)
+        ombre.setColor(QColor(0, 0, 0, 60))
+        tuile.setGraphicsEffect(ombre)
+        tuile.clicked.connect(lambda checked=False, m=module["id"]: self.module_selected.emit(m))
+        disposition.addWidget(tuile, alignment=Qt.AlignCenter)
+
+        description = QLabel(module["description"])
+        description.setObjectName("Muted")
+        description.setWordWrap(True)
+        description.setAlignment(Qt.AlignCenter)
+        description.setFixedWidth(220)
+        disposition.addWidget(description)
+
+        return conteneur
 
     def _afficher_a_propos(self):
         QMessageBox.information(

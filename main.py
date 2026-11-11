@@ -19,7 +19,7 @@ from PySide6.QtGui import QIcon, QGuiApplication
 from PySide6.QtCore import Qt
 
 from core import database
-from core.theme import STYLESHEET
+from core import theme
 from core.logs import configurer_logs, installer_gestionnaire_erreurs_global, LOG_PATH
 from home import HomePage
 from modules.qualite.shell import QualiteModule
@@ -42,11 +42,29 @@ def _corriger_icone_barre_des_taches_windows():
             pass
 
 
+def _dimensionner_fenetre(window: QMainWindow) -> None:
+    """Taille et taille minimale calculées à partir de l'écran réel du poste, pas de
+    valeurs fixes : sur un petit écran (portable), la fenêtre restaurée (touche
+    « rétablir ») ne dépasse jamais l'espace disponible ; sur un grand écran, elle
+    ne reste pas plaquée à une taille ridiculement petite. L'application s'ouvre de
+    toute façon maximisée par défaut (voir main()) : ceci ne joue que lorsque
+    l'utilisateur quitte le plein écran."""
+    ecran = QGuiApplication.primaryScreen()
+    disponible = ecran.availableGeometry() if ecran else None
+    if disponible is None:
+        window.resize(1200, 800)
+        return
+    largeur = min(1200, int(disponible.width() * 0.85))
+    hauteur = min(800, int(disponible.height() * 0.85))
+    window.resize(largeur, hauteur)
+    window.setMinimumSize(min(1000, disponible.width()), min(650, disponible.height()))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, conn):
         super().__init__()
         self.setWindowTitle("BioCentral")
-        self.resize(1200, 800)
+        _dimensionner_fenetre(self)
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -91,7 +109,7 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
-    app.setStyleSheet(STYLESHEET)
+    app.setStyleSheet(theme.stylesheet("light"))  # thème par défaut, avant de connaître la préférence enregistrée
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))
 
@@ -106,6 +124,8 @@ def main():
             "Transmettez ce fichier pour obtenir de l'aide.",
         )
         sys.exit(1)
+
+    theme.ThemeManager.instance().load(conn)
 
     window = MainWindow(conn)
     if ICON_PATH.exists():

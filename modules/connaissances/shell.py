@@ -4,15 +4,18 @@ liste des documents importés avec cases à cocher pour filtrer la recherche,
 bouton d'import) + zone de contenu qui bascule entre la recherche et l'import.
 """
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QPushButton, QStackedWidget,
 )
 from PySide6.QtCore import Signal, Qt
+
+from core.nav_widgets import breadcrumb_label, entete_barre_laterale, section_label
 
 from .import_screen import ImportScreen
 from .recherche import RechercheWidget
 
 DOCUMENT_ID_ROLE = Qt.UserRole + 1
+FIL_ARIANE_PREFIXE = "BioCentral › Base de connaissances"
 
 
 class ConnaissancesModule(QWidget):
@@ -32,17 +35,21 @@ class ConnaissancesModule(QWidget):
         sidebar.setFixedWidth(240)
         side_layout = QVBoxLayout(sidebar)
         side_layout.setContentsMargins(12, 12, 12, 12)
+        side_layout.setSpacing(4)
 
-        btn_accueil = QPushButton("Retour vers Accueil")
-        btn_accueil.setObjectName("PrimaryButton")
-        btn_accueil.clicked.connect(self.retour_accueil.emit)
-        side_layout.addWidget(btn_accueil)
-        side_layout.addSpacing(16)
+        side_layout.addWidget(entete_barre_laterale(self.conn, self.retour_accueil.emit))
+        side_layout.addSpacing(14)
 
-        label_documents = QLabel("Documents")
-        label_documents.setObjectName("Muted")
-        side_layout.addWidget(label_documents)
+        side_layout.addWidget(section_label("Navigation"))
+        self.btn_recherche = QPushButton("🔎 Recherche")
+        self.btn_recherche.setObjectName("BoutonAccueil")
+        self.btn_recherche.setCheckable(True)
+        self.btn_recherche.setChecked(True)
+        self.btn_recherche.clicked.connect(self._ouvrir_recherche)
+        side_layout.addWidget(self.btn_recherche)
+        side_layout.addSpacing(14)
 
+        side_layout.addWidget(section_label("Documents"))
         self.liste_documents = QListWidget()
         self.liste_documents.itemChanged.connect(self._sur_filtre_change)
         side_layout.addWidget(self.liste_documents, stretch=1)
@@ -54,7 +61,14 @@ class ConnaissancesModule(QWidget):
 
         root.addWidget(sidebar)
 
-        # --- Zone de contenu ---
+        # --- Zone de contenu : fil d'Ariane + contenu qui bascule ---
+        colonne_contenu = QVBoxLayout()
+        colonne_contenu.setContentsMargins(0, 0, 0, 0)
+        colonne_contenu.setSpacing(0)
+
+        self.fil_ariane = breadcrumb_label()
+        colonne_contenu.addWidget(self.fil_ariane)
+
         self.contenu = QStackedWidget()
         self.recherche = RechercheWidget(self.conn)
         self.contenu.addWidget(self.recherche)
@@ -63,9 +77,17 @@ class ConnaissancesModule(QWidget):
         self.import_screen.import_termine.connect(self._sur_import_termine)
         self.contenu.addWidget(self.import_screen)
 
-        root.addWidget(self.contenu, stretch=1)
+        colonne_contenu.addWidget(self.contenu, stretch=1)
+
+        contenu_widget = QWidget()
+        contenu_widget.setLayout(colonne_contenu)
+        root.addWidget(contenu_widget, stretch=1)
 
         self._charger_documents()
+        self._definir_fil_ariane("Recherche")
+
+    def _definir_fil_ariane(self, suffixe: str) -> None:
+        self.fil_ariane.setText(f"{FIL_ARIANE_PREFIXE} › {suffixe}")
 
     def _charger_documents(self):
         self.liste_documents.blockSignals(True)
@@ -94,9 +116,16 @@ class ConnaissancesModule(QWidget):
         else:
             self.recherche.definir_filtre_documents(coches)
 
+    def _ouvrir_recherche(self):
+        self.contenu.setCurrentWidget(self.recherche)
+        self.btn_recherche.setChecked(True)
+        self._definir_fil_ariane("Recherche")
+
     def _ouvrir_import(self):
         self.contenu.setCurrentWidget(self.import_screen)
+        self.btn_recherche.setChecked(False)
+        self._definir_fil_ariane("Importer un document")
 
     def _sur_import_termine(self):
         self._charger_documents()
-        self.contenu.setCurrentWidget(self.recherche)
+        self._ouvrir_recherche()

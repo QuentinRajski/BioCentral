@@ -46,9 +46,9 @@ def get_connection() -> sqlite3.Connection:
 # changement de schéma doit s'appliquer sans perdre les données existantes.
 # ------------------------------------------------------------------
 MIGRATIONS = {
-    # "qc_schema_version": {
-    #     2: "ALTER TABLE qc_echantillons ADD COLUMN commentaire TEXT;",
-    # },
+    "qc_schema_version": {
+        2: "ALTER TABLE qc_parametres ADD COLUMN notes TEXT;",
+    },
     "kb_schema_version": {
         1: """
             CREATE TABLE kb_documents (
@@ -83,6 +83,17 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 (version_key, str(target_version)),
             )
         conn.commit()
+
+
+def get_theme_preference(conn: sqlite3.Connection) -> str:
+    """Thème choisi par l'utilisateur ('light' ou 'dark'), 'light' par défaut."""
+    row = conn.execute("SELECT valeur FROM app_metadata WHERE cle = 'theme'").fetchone()
+    return row[0] if row and row[0] in ("light", "dark") else "light"
+
+
+def set_theme_preference(conn: sqlite3.Connection, valeur: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO app_metadata (cle, valeur) VALUES ('theme', ?)", (valeur,))
+    conn.commit()
 
 
 def export_database(destination: Path) -> None:

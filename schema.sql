@@ -22,7 +22,8 @@ CREATE TABLE qc_parametres (
     domaine_min    REAL,               -- domaine de mesure : borne basse (ex. 0.3 pour LH)
     domaine_max    REAL,               -- domaine de mesure : borne haute (ex. 250 pour LH)
     date_import    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    fichier_source TEXT                -- nom du fichier Excel importé, pour traçabilité
+    fichier_source TEXT,               -- nom du fichier Excel importé, pour traçabilité
+    notes          TEXT                -- commentaires libres de l'utilisateur sur ce paramètre
 );
 
 -- Tranches d'âge définies par l'utilisateur à l'import, propres à chaque paramètre.
@@ -60,7 +61,7 @@ CREATE INDEX idx_qc_echantillons_parametre ON qc_echantillons(parametre_id);
 CREATE INDEX idx_qc_echantillons_tranche   ON qc_echantillons(tranche_age_id);
 CREATE INDEX idx_qc_echantillons_sexe      ON qc_echantillons(sexe);
 
-INSERT INTO app_metadata (cle, valeur) VALUES ('qc_schema_version', '1');
+INSERT INTO app_metadata (cle, valeur) VALUES ('qc_schema_version', '2');
 
 -- ============================================================
 -- Module Base de connaissances (préfixe kb_)

@@ -13,23 +13,45 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtGui import QPainter, QColor, QCursor, QPen, QFont
 from PySide6.QtCore import Qt, QMargins, QRectF, QDateTime, QDate, QTime
-from PySide6.QtWidgets import QToolTip, QWidget
+from PySide6.QtWidgets import QToolTip, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout
+
+from core import theme
 
 COULEUR_PRINCIPALE = QColor("#378ADD")
 COULEUR_SECONDAIRE = QColor("#6B9E7C")  # vert doux, pour distinguer l'histogramme des âges
-COULEUR_ACCENT = QColor("#0C447C")
 PALETTE_CATEGORIES = [QColor(c) for c in ["#378ADD", "#7F77DD", "#D4537E", "#1D9E75", "#D8A930", "#8A887E"]]
 
 
-def _chart_view(chart: QChart) -> QChartView:
+def _chart_view(chart: QChart, hauteur: int = 160) -> QChartView:
     chart.setBackgroundVisible(False)
     chart.setMargins(QMargins(4, 4, 4, 4))
     chart.setContentsMargins(0, 0, 0, 0)
     view = QChartView(chart)
     view.setRenderHint(QPainter.Antialiasing)
-    view.setFixedHeight(160)
+    view.setFixedHeight(hauteur)
     view.setStyleSheet("background: transparent; border: none;")
     return view
+
+
+def _pastille_legende(couleur: QColor, texte: str) -> QWidget:
+    """Une entrée de légende dessinée à la main (pastille + texte), plutôt que la
+    légende intégrée de QtCharts : sa taille ne dépend alors plus du nombre de
+    catégories, ce qui garantit un anneau de même diamètre quel que soit le
+    nombre d'entrées (2 sexes vs N tranches d'âge)."""
+    conteneur = QWidget()
+    conteneur.setStyleSheet("background: transparent;")
+    ligne = QHBoxLayout(conteneur)
+    ligne.setContentsMargins(0, 0, 0, 0)
+    ligne.setSpacing(6)
+    pastille = QLabel()
+    pastille.setFixedSize(12, 12)
+    pastille.setStyleSheet(f"background-color: {couleur.name()}; border-radius: 6px;")
+    ligne.addWidget(pastille, alignment=Qt.AlignTop)
+    label = QLabel(texte)
+    label.setObjectName("Muted")
+    label.setWordWrap(True)
+    ligne.addWidget(label)
+    return conteneur
 
 
 def _format_bin_edge(v: float, decimales: bool) -> str:
@@ -63,7 +85,7 @@ def build_histogram(values: list[float], n_bins: int = 8, couleur: QColor = COUL
     bar_set.append(comptes)
     bar_set.setColor(couleur)
     bar_set.setBorderColor(couleur)
-    bar_set.setLabelColor(QColor("#5F5E5A"))
+    bar_set.setLabelColor(theme.qcolor("header_text"))
 
     series = QBarSeries()
     series.append(bar_set)
@@ -87,7 +109,7 @@ def build_histogram(values: list[float], n_bins: int = 8, couleur: QColor = COUL
     font_axe = axis_x.labelsFont()
     font_axe.setPointSize(8)
     axis_x.setLabelsFont(font_axe)
-    axis_x.setLabelsColor(QColor("#8A887E"))
+    axis_x.setLabelsColor(theme.qcolor("muted"))
     chart.addAxis(axis_x, Qt.AlignBottom)
     series.attachAxis(axis_x)
 
@@ -102,39 +124,103 @@ def build_histogram(values: list[float], n_bins: int = 8, couleur: QColor = COUL
     return _chart_view(chart)
 
 
-def build_pie(categories: dict) -> QChartView:
-    """Camembert (anneau) à partir d'un dict {libellé: effectif}. Légende avec
-    effectif ET pourcentage, info-bulle au survol de chaque part."""
+HAUTEUR_ANNEAU = 200
+COLONNES_LEGENDE = 1
+
+
+class _AnneauAvecTotal(QWidget):
+    """Superpose un total bien visible au centre du trou de l'anneau, par-dessus le
+    graphique — un rendu « donut chart » moderne façon tableau de bord plutôt
+    qu'un simple camembert QtCharts nu. La position du total est recalculée à
+    chaque redimensionnement (plutôt que confiée à un empilement de layout) pour
+    garantir un centrage fiable quelle que soit la largeur finale de la carte."""
+
+    def __init__(self, chart_view: QChartView, texte_html: str):
+        super().__init__()
+        self.setStyleSheet("background: transparent;")
+        self.setFixedHeight(chart_view.height())
+
+        self._chart_view = chart_view
+        chart_view.setParent(self)
+
+        self._label = QLabel(self)
+        self._label.setTextFormat(Qt.RichText)
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setAttribute(Qt.WA_TransparentForMouseEvents)  # laisse les survols atteindre les parts
+        self._label.setStyleSheet("background: transparent;")
+        self._label.setText(texte_html)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._chart_view.setGeometry(self.rect())
+        self._label.setGeometry(self.rect())
+
+
+def build_pie(categories: dict, libelle_total: str = "échantillons") -> QWidget:
+    """Camembert en anneau, avec le total affiché au centre et une légende dessinée
+    à la main en dessous (pastille + effectif + pourcentage) plutôt que la légende
+    intégrée de QtCharts : sa taille ne dépend alors pas du nombre de catégories,
+    ce qui garantit un anneau de même diamètre pour tous les camemberts de
+    l'appli, quel que soit leur nombre d'entrées. Info-bulle au survol de chaque
+    part pour le détail exact."""
     chart = QChart()
+    chart.legend().setVisible(False)
+    chart.setAnimationOptions(QChart.SeriesAnimations)
+
+    conteneur = QWidget()
+    conteneur.setStyleSheet("background: transparent;")
+    disposition = QVBoxLayout(conteneur)
+    disposition.setContentsMargins(0, 0, 0, 0)
+    disposition.setSpacing(10)
+
     if not categories or not sum(categories.values()):
-        chart.legend().setVisible(False)
-        return _chart_view(chart)
+        disposition.addWidget(_chart_view(chart, HAUTEUR_ANNEAU))
+        return conteneur
 
     total = sum(v for v in categories.values() if v > 0)
 
     series = QPieSeries()
-    series.setHoleSize(0.45)
+    series.setHoleSize(0.62)
+
+    legende = QGridLayout()
+    legende.setHorizontalSpacing(14)
+    legende.setVerticalSpacing(6)
+    position = 0
     for i, (label, valeur) in enumerate(categories.items()):
         if valeur <= 0:
             continue
+        couleur = PALETTE_CATEGORIES[i % len(PALETTE_CATEGORIES)]
         pct = round(valeur / total * 100)
-        part = series.append(f"{label} ({valeur} | {pct}%)", valeur)
-        part.setColor(PALETTE_CATEGORIES[i % len(PALETTE_CATEGORIES)])
-        part.setBorderWidth(0)
+
+        part = series.append(label, valeur)
+        part.setColor(couleur)
+        part.setBorderColor(theme.qcolor("card_bg"))
+        part.setBorderWidth(3)
         part.setLabelVisible(False)
 
-        def _survol(state: bool, slice_=part):
+        def _survol(state: bool, slice_=part, label=label, valeur=valeur, pct=pct):
             if state:
-                QToolTip.showText(QCursor.pos(), slice_.label())
+                QToolTip.showText(QCursor.pos(), f"{label} : {valeur} ({pct} %)")
 
         part.hovered.connect(_survol)
 
-    chart.addSeries(series)
-    chart.legend().setVisible(True)
-    chart.legend().setAlignment(Qt.AlignRight)
-    chart.legend().setFont(chart.legend().font())
+        legende.addWidget(
+            _pastille_legende(couleur, f"{label} · {valeur} ({pct} %)"),
+            position // COLONNES_LEGENDE, position % COLONNES_LEGENDE,
+        )
+        position += 1
 
-    return _chart_view(chart)
+    chart.addSeries(series)
+    chart_view = _chart_view(chart, HAUTEUR_ANNEAU)
+    texte_total = (
+        f"<div style='font-size:22px; font-weight:700; color:{theme.qcolor('text').name()};'>{total}</div>"
+        f"<div style='font-size:11px; color:{theme.qcolor('muted').name()};'>{libelle_total}</div>"
+    )
+    disposition.addWidget(_AnneauAvecTotal(chart_view, texte_total))
+    disposition.addLayout(legende)
+    disposition.addStretch(1)  # évite que le grille de légende s'étire pour remplir la hauteur fixe de la carte
+
+    return conteneur
 
 
 class BoiteAMoustachesHorizontale(QWidget):
@@ -194,7 +280,8 @@ class BoiteAMoustachesHorizontale(QWidget):
         font.setPointSize(10)
         painter.setFont(font)
 
-        stylo = QPen(COULEUR_ACCENT)
+        couleur_accent = theme.qcolor("accent_text")
+        stylo = QPen(couleur_accent)
         stylo.setWidth(2)
         painter.setPen(stylo)
 
@@ -209,14 +296,14 @@ class BoiteAMoustachesHorizontale(QWidget):
         painter.drawRect(QRectF(x_de(p25), y - demi_boite, x_de(p75) - x_de(p25), demi_boite * 2))
 
         # Médiane
-        stylo_median = QPen(COULEUR_ACCENT)
+        stylo_median = QPen(couleur_accent)
         stylo_median.setWidth(3)
         painter.setPen(stylo_median)
         painter.drawLine(int(x_de(med)), y - demi_boite, int(x_de(med)), y + demi_boite)
 
         # Étiquettes du haut (P25, médiane, P75) : décalées en cascade si les valeurs
         # sont proches les unes des autres, pour ne jamais se chevaucher.
-        painter.setPen(QColor("#8A887E"))
+        painter.setPen(theme.qcolor("muted"))
         metriques = painter.fontMetrics()
         hautes = sorted([p25, med, p75])
         fin_precedente = None
@@ -275,7 +362,7 @@ def build_temporal(paires_date_valeur: list[tuple[str, float]]) -> QChartView:
 
     axis_x = QDateTimeAxis()
     axis_x.setFormat("dd/MM/yy")
-    axis_x.setLabelsColor(QColor("#8A887E"))
+    axis_x.setLabelsColor(theme.qcolor("muted"))
     axis_x.setGridLineVisible(False)
     font_axe = axis_x.labelsFont()
     font_axe.setPointSize(8)
@@ -284,7 +371,7 @@ def build_temporal(paires_date_valeur: list[tuple[str, float]]) -> QChartView:
     series.attachAxis(axis_x)
 
     axis_y = QValueAxis()
-    axis_y.setLabelsColor(QColor("#8A887E"))
+    axis_y.setLabelsColor(theme.qcolor("muted"))
     axis_y.setGridLineVisible(False)
     chart.addAxis(axis_y, Qt.AlignLeft)
     series.attachAxis(axis_y)
