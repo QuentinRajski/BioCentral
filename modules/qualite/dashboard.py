@@ -16,77 +16,26 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QAbstractItemView, QStyledItemDelegate, QSizePolicy,
     QCheckBox, QPushButton, QScrollArea, QFrame, QTextEdit, QToolButton, QMenu,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont
 
-from core import theme
+from core import export, intervalle_reference, theme, ui
+from core.formatage import date_fr, fmt, fmt_dec
+from core.plot import PlotWidget
 from core.stats import compute_stats, PERCENTILES
 from core.charts import build_histogram, build_pie, build_boxplot, build_temporal, COULEUR_SECONDAIRE
 from core.tests_statistiques import test_normalite, detecter_aberrantes, comparer_deux_groupes
 from .tranches_dialog import TranchesDialog
 from .domaine_dialog import DomaineMesureDialog
+from .intervalles_dialog import IntervallesReferenceDialog
+from . import import_logic
 
 
-class _DelegueCouleurFond(QStyledItemDelegate):
-    """Les styles QSS ciblant ::item désactivent le rendu normal de Qt::BackgroundRole,
-    même sans propriété background-color explicite. Ce délégué peint la couleur de
-    fond lui-même avant de laisser le style habituel gérer texte/bordures/padding."""
-    def paint(self, painter, option, index):
-        couleur = index.data(Qt.BackgroundRole)
-        if couleur is not None:
-            painter.save()
-            painter.fillRect(option.rect, couleur)
-            painter.restore()
-        super().paint(painter, option, index)
-
-
-def _card(inner_layout) -> QWidget:
-    w = QWidget()
-    w.setObjectName("Card")
-    w.setAttribute(Qt.WA_StyledBackground, True)
-    w.setLayout(inner_layout)
-    return w
-
-
-def _style_table(table: QTableWidget, hauteur_ligne: int = 34) -> None:
-    """Polish commun à tous les tableaux : évite le look 'tableur' par défaut de Qt.
-    L'alternance de couleur est gérée manuellement ligne par ligne (pas via QSS),
-    pour pouvoir la combiner avec un surlignage ponctuel sans conflit de priorité.
-    hauteur_ligne plus compacte pour les petits tableaux clé/valeur (statistiques,
-    tests, percentiles) : ça ne réduit aucune donnée affichée, juste l'espace
-    perdu autour, ce qui évite un défilement pour voir le bas de la page."""
-    table.verticalHeader().setVisible(False)
-    table.setShowGrid(False)
-    table.setAlternatingRowColors(False)
-    table.setSelectionBehavior(QAbstractItemView.SelectRows)
-    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    table.horizontalHeader().setHighlightSections(False)
-    table.verticalHeader().setDefaultSectionSize(hauteur_ligne)
-    table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-    table.horizontalHeader().setFixedHeight(hauteur_ligne)
-    table.setObjectName("Card")
-    table.setItemDelegate(_DelegueCouleurFond(table))
-
-
-def _couleur_ligne(index: int, surlignee: bool = False) -> QColor:
-    pal = theme.palette()
-    if surlignee:
-        return QColor(pal["table_highlight"])  # rouge pâle : résultat sous/sur le domaine de mesure
-    return QColor(pal["table_row_impair"]) if index % 2 else QColor(pal["table_row_pair"])
-
-
-class _ItemTriable(QTableWidgetItem):
-    """QTableWidgetItem dont le tri se base sur une clé numérique séparée du texte
-    affiché — évite le piège de setData(Qt.EditRole, ...) qui écraserait le texte
-    personnalisé ("50 ans", "<0.3") avec la valeur numérique brute."""
-    def __init__(self, texte: str, cle_tri):
-        super().__init__(texte)
-        self._cle_tri = cle_tri
-
-    def __lt__(self, other):
-        if isinstance(other, _ItemTriable) and self._cle_tri is not None and other._cle_tri is not None:
-            return self._cle_tri < other._cle_tri
-        return super().__lt__(other)
+# Aides communes désormais partagées avec les autres modules (core/ui.py).
+_card = ui.carte
+_style_table = ui.styliser_table
+_couleur_ligne = ui.couleur_ligne
+_ItemTriable = ui.ItemTriable  # tri sur clé séparée — version corrigée (plantage PySide6 6.11)
 
 
 def _right_align(item: QTableWidgetItem) -> QTableWidgetItem:
@@ -94,12 +43,7 @@ def _right_align(item: QTableWidgetItem) -> QTableWidgetItem:
     return item
 
 
-def _formater_date_fr(iso_date: str) -> str:
-    try:
-        annee, mois, jour = iso_date.split("-")
-        return f"{jour}/{mois}/{annee}"
-    except (ValueError, AttributeError):
-        return iso_date or ""
+_formater_date_fr = date_fr
 
 
 INFOBULLES_STATS = {
@@ -126,6 +70,8 @@ def _formater_p(p: float) -> str:
 
 
 class DashboardWidget(QWidget):
+    supprime = Signal()  # le paramètre a été supprimé : la coquille ferme ce tableau de bord
+
     def __init__(self, conn, parametre_id: int, parametre_nom: str):
         super().__init__()
         self.conn = conn
@@ -139,9 +85,10 @@ class DashboardWidget(QWidget):
         # --- En-tête + filtres ---
         header = QHBoxLayout()
         header.setSpacing(8)
-        titre = QLabel(f"Paramètre : {parametre_nom}")
-        titre.setObjectName("TitrePage")
-        header.addWidget(titre)
+        self.titre = QLabel()
+        self.titre.setObjectName("TitrePage")
+        header.addWidget(self.titre)
+        self._maj_titre()
         header.addStretch()
 
         label_tranche = QLabel("Tranche d'âge")
@@ -169,6 +116,13 @@ class DashboardWidget(QWidget):
         menu_parametres = QMenu(btn_parametres)
         menu_parametres.addAction("✎ Modifier les tranches d'âge…", self._ouvrir_dialogue_tranches)
         menu_parametres.addAction("✎ Modifier le domaine de mesure…", self._ouvrir_dialogue_domaine)
+        menu_parametres.addAction("✎ Unité des résultats…", self._modifier_unite)
+        menu_parametres.addAction("✎ Intervalles de référence à vérifier…", self._ouvrir_dialogue_intervalles)
+        menu_parametres.addSeparator()
+        menu_parametres.addAction("⬇ Rapport PDF (filtre en cours)…", self._exporter_pdf)
+        menu_parametres.addAction("⬇ Échantillons filtrés (Excel)…", self._exporter_excel)
+        menu_parametres.addSeparator()
+        menu_parametres.addAction("🗑 Supprimer ce paramètre…", self._supprimer_parametre)
         btn_parametres.setMenu(menu_parametres)
         header.addWidget(btn_parametres)
         root.addLayout(header)
@@ -239,7 +193,7 @@ class DashboardWidget(QWidget):
         self.stats_table.setObjectName("CardAccentBleu")
         self.stats_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.stats_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.stats_table.setFixedHeight(HAUTEUR_LIGNE_COMPACTE * 8 + 4)
+        ui.ajuster_hauteur_table(self.stats_table)
         colonne_stats.addWidget(self.stats_table, stretch=0)
 
         self.tests_table = QTableWidget(3, 2)
@@ -248,7 +202,7 @@ class DashboardWidget(QWidget):
         self.tests_table.setObjectName("CardAccentBleu")
         self.tests_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tests_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.tests_table.setFixedHeight(HAUTEUR_LIGNE_COMPACTE * 4 + 4)
+        ui.ajuster_hauteur_table(self.tests_table)
         colonne_stats.addWidget(self.tests_table, stretch=0)
 
         self.percentile_table = QTableWidget(len(PERCENTILES), 2)
@@ -257,8 +211,10 @@ class DashboardWidget(QWidget):
         self.percentile_table.setObjectName("CardAccentBleu")
         self.percentile_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.percentile_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.percentile_table.setMinimumHeight(HAUTEUR_LIGNE_COMPACTE * (len(PERCENTILES) + 1) + 4)
+        self.percentile_table.setMinimumHeight(HAUTEUR_LIGNE_COMPACTE * len(PERCENTILES) + 44)
         colonne_stats.addWidget(self.percentile_table, stretch=1)
+
+        colonne_stats.addWidget(self._creer_carte_intervalle())
 
         boxplot_card, self.layout_boxplot = self._chart_card(
             "Résumé (P5 · P25 · médiane · P75 · P95)", accent="CardAccentBleu", hauteur=300)
@@ -353,10 +309,9 @@ class DashboardWidget(QWidget):
 
     def _set_chart(self, layout: QVBoxLayout, chart_view) -> None:
         # Le premier élément du layout est toujours le titre : on ne retire que le reste.
-        while layout.count() > 1:
-            item = layout.takeAt(1)
-            if item.widget():
-                item.widget().deleteLater()
+        # v2 : masqué et détaché immédiatement (sinon l'ancien graphique restait
+        # visible en surimpression jusqu'à sa destruction différée).
+        ui.vider_layout(layout, a_partir_de=1)
         layout.addWidget(chart_view)
 
     def _ouvrir_dialogue_tranches(self):
@@ -464,6 +419,7 @@ class DashboardWidget(QWidget):
         valeurs_valides = [v for v, s in stat_rows if s == "valide"]
         self._afficher_stats(result, valeurs_toutes, valeurs_valides)
 
+        self._afficher_intervalle(stat_rows)
         stat_rows_graphiques = [(v, s) for _, _, _, _, v, s, _, _ in rows if v is not None]
         self._rafraichir_graphiques(rows, stat_rows_graphiques)
 
@@ -475,9 +431,11 @@ class DashboardWidget(QWidget):
             self.percentile_table.setRowCount(0)
             self.tests_table.setRowCount(0)
             self._set_chart(self.layout_boxplot, build_boxplot(None))
+            ui.ajuster_hauteur_table(self.stats_table)
             return
 
         self.stats_table.setRowCount(7)
+        ui.ajuster_hauteur_table(self.stats_table)
         champs = [
             ("Échantillons", result.n), ("Moyenne", result.moyenne), ("Médiane", result.mediane),
             ("Écart-type", result.ecart_type), ("CV (%)", result.cv),
@@ -486,7 +444,7 @@ class DashboardWidget(QWidget):
         for row, (label, valeur) in enumerate(champs):
             couleur = _couleur_ligne(row)
             item_label = QTableWidgetItem(label)
-            item_valeur = _right_align(QTableWidgetItem(str(valeur)))
+            item_valeur = _right_align(QTableWidgetItem(fmt(valeur, 6)))
             item_label.setBackground(couleur)
             item_valeur.setBackground(couleur)
             infobulle = INFOBULLES_STATS.get(label, "")
@@ -499,7 +457,7 @@ class DashboardWidget(QWidget):
         for i, p in enumerate(PERCENTILES):
             couleur = _couleur_ligne(i)
             item_p = QTableWidgetItem(f"P{p}")
-            item_v = _right_align(QTableWidgetItem(str(result.percentiles[p])))
+            item_v = _right_align(QTableWidgetItem(fmt(result.percentiles[p], 6)))
             item_p.setBackground(couleur)
             item_v.setBackground(couleur)
             infobulle = _infobulle_percentile(p)
@@ -555,6 +513,8 @@ class DashboardWidget(QWidget):
             ))
 
         self.tests_table.setRowCount(len(lignes))
+        ui.ajuster_hauteur_table(self.tests_table)
+        self._lignes_tests = [(l, v) for l, v, _ in lignes]
         for i, (label, valeur, infobulle) in enumerate(lignes):
             item_label = QTableWidgetItem(label)
             item_valeur = _right_align(QTableWidgetItem(valeur))
@@ -585,3 +545,215 @@ class DashboardWidget(QWidget):
 
         paires_temporel = [(row[7], row[4]) for row in rows if row[4] is not None and row[7]]
         self._set_chart(self.layout_temporel, build_temporal(paires_temporel))
+
+    # ------------------------------------------------------------------
+    # v2 : unité, intervalle de référence, exports, suppression
+    # ------------------------------------------------------------------
+    def _maj_titre(self):
+        unite = import_logic.get_unite(self.conn, self.parametre_id)
+        self.titre.setText(f"Paramètre : {self.parametre_nom}" + (f" ({unite})" if unite else ""))
+
+    def _modifier_unite(self):
+        from PySide6.QtWidgets import QInputDialog
+        unite, ok = QInputDialog.getText(self, "Unité des résultats", f"Unité de « {self.parametre_nom} » :",
+                                         text=import_logic.get_unite(self.conn, self.parametre_id))
+        if ok:
+            import_logic.definir_unite(self.conn, self.parametre_id, unite)
+            self._maj_titre()
+
+    def _creer_carte_intervalle(self) -> QWidget:
+        carte, layout = ui.carte_titree("Intervalle de référence (CLSI EP28-A3c) — filtre en cours", "CardAccentVert")
+        self.table_intervalle = ui.table_cle_valeur(("Indicateur", "Valeur"), HAUTEUR_LIGNE_COMPACTE, "Card")
+        self.table_intervalle.setStyleSheet("QTableWidget { border: none; }")
+        layout.addWidget(self.table_intervalle)
+        self.badge_verification = ui.badge("", "neutre")
+        self.badge_verification.setWordWrap(True)
+        layout.addWidget(self.badge_verification)
+        self.label_intervalle = ui.texte_discret()
+        layout.addWidget(self.label_intervalle)
+        lien = ui.bouton("Définir les intervalles à vérifier…", self._ouvrir_dialogue_intervalles)
+        lien.setObjectName("LienDiscret")
+        lien.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(lien, alignment=Qt.AlignLeft)
+        self._intervalle = None
+        self._verification = None
+        return carte
+
+    def _filtre_courant(self) -> tuple[str, str]:
+        tranche = self.filtre_tranche.currentText() if self.filtre_tranche.currentData() is not None else ""
+        sexe = self.filtre_sexe.currentText() if self.filtre_sexe.currentText() != "Tous" else ""
+        return tranche, sexe
+
+    @staticmethod
+    def _texte_limite(valeur, ic, censure: bool, seuil) -> str:
+        if valeur is None:
+            return "—"
+        if censure:
+            return f"≤ {fmt(seuil)} (sous le seuil de mesure)"
+        texte = fmt(valeur)
+        if ic:
+            texte += f"  IC 90 % [{fmt(ic[0])} ; {fmt(ic[1])}]"
+        return texte
+
+    def _afficher_intervalle(self, stat_rows):
+        valeurs = [v for v, _ in stat_rows]
+        self._intervalle = intervalle_reference.estimer(valeurs)
+        r = self._intervalle
+        domaine_min, domaine_max = import_logic.get_domaine_mesure(self.conn, self.parametre_id)
+        a_sous = any(s == "sous_seuil" for _, s in stat_rows)
+        a_sur = any(s == "sur_seuil" for _, s in stat_rows)
+        seuil_bas = max((v for v, s in stat_rows if s == "sous_seuil"), default=domaine_min)
+        seuil_haut = min((v for v, s in stat_rows if s == "sur_seuil"), default=domaine_max)
+        censure_bas = a_sous and r.limite_basse is not None and r.limite_basse <= seuil_bas
+        censure_haut = a_sur and r.limite_haute is not None and r.limite_haute >= seuil_haut
+        lignes = [("Effectif", str(r.n), "Résultats non exclus du filtre en cours.")]
+        if r.limite_basse is not None:
+            lignes += [
+                ("Limite basse (P2,5)", self._texte_limite(r.limite_basse, r.ic_basse, censure_bas, seuil_bas),
+                 "Méthode non paramétrique des rangs : rang 0,025 × (n + 1)."),
+                ("Limite haute (P97,5)", self._texte_limite(r.limite_haute, r.ic_haute, censure_haut, seuil_haut),
+                 "Rang 0,975 × (n + 1)."),
+                ("IC des limites", "rangs (loi binomiale)" if r.methode_ic == "rangs" else "bootstrap (2000 tirages)",
+                 "Intervalle de confiance à 90 % de chaque limite, recommandé par le CLSI EP28-A3c."),
+            ]
+        ui.remplir_table_cle_valeur(self.table_intervalle, lignes)
+        ui.ajuster_hauteur_table(self.table_intervalle)
+
+        tranche, sexe = self._filtre_courant()
+        ref = import_logic.get_intervalle_reference(self.conn, self.parametre_id, tranche, sexe)
+        self._verification = None
+        if ref is None:
+            ui.definir_badge(self.badge_verification, "Aucun intervalle à vérifier pour ce filtre", "neutre")
+        else:
+            bas, haut, source, ref_tranche, ref_sexe = ref
+            v = intervalle_reference.verifier(valeurs, bas, haut)
+            self._verification = (ref, v)
+            portee = f"{ref_tranche or 'toutes tranches'} · {ref_sexe or 'tous sexes'}"
+            texte = (f"Intervalle {fmt(bas) if bas is not None else '—'} – {fmt(haut) if haut is not None else '—'}"
+                     f"{' (' + source + ')' if source else ''} [{portee}] : {v.n_hors}/{v.n} hors intervalle "
+                     f"({fmt_dec(v.pourcent_hors, 1)} % ; {v.n_sous} bas, {v.n_sur} haut)")
+            if v.verdict is None:
+                ui.definir_badge(self.badge_verification,
+                                 texte + f" — effectif < {intervalle_reference.EFFECTIF_VERIFICATION}, vérification impossible",
+                                 "neutre")
+            else:
+                ui.definir_badge(self.badge_verification,
+                                 texte + (" — VÉRIFIÉ (≤ 10 %)" if v.verdict else " — NON vérifié (> 10 %)"),
+                                 "ok" if v.verdict else "rejet")
+        notes = list(r.avertissements)
+        if censure_bas or censure_haut:
+            notes.append("Les résultats rendus « <seuil » comptent au rang du seuil : une limite qui tombe sur ce "
+                         "seuil est affichée « ≤ seuil ».")
+        self.label_intervalle.setText("\n".join(notes))
+        self.label_intervalle.setVisible(bool(notes))
+
+    def _ouvrir_dialogue_intervalles(self):
+        dialogue = IntervallesReferenceDialog(self.conn, self.parametre_id, self.parametre_nom, parent=self)
+        if dialogue.exec():
+            self.rafraichir()
+
+    def _supprimer_parametre(self):
+        n = self.conn.execute("SELECT COUNT(*) FROM qc_echantillons WHERE parametre_id = ?",
+                              (self.parametre_id,)).fetchone()[0]
+        if ui.confirmer(self, "Supprimer le paramètre",
+                        f"Supprimer « {self.parametre_nom} », ses {n} échantillon(s), ses tranches d'âge, ses notes et "
+                        "ses intervalles de référence ?\n\nCette action est définitive (une sauvegarde automatique de "
+                        "la base est faite chaque jour).", "Supprimer", danger=True):
+            import_logic.supprimer_parametre(self.conn, self.parametre_id)
+            self.supprime.emit()
+
+    def _nom_fichier(self, extension: str) -> str:
+        tranche, sexe = self._filtre_courant()
+        morceaux = [self.parametre_nom] + [m for m in (tranche, sexe) if m]
+        return "_".join("".join(c if c.isalnum() or c == "-" else "_" for c in m) for m in morceaux) + extension
+
+    def _exporter_excel(self):
+        chemin = ui.demander_fichier_enregistrement(self, "Exporter les échantillons", self._nom_fichier(".xlsx"),
+                                                    "Fichiers Excel (*.xlsx)")
+        if not chemin:
+            return
+        libelles_statut = {"valide": "Valide", "sous_seuil": "Sous la borne", "sur_seuil": "Au-dessus de la borne"}
+        lignes = [[numero, sexe, age, tranche or "", date_prelevement, affichee, valeur,
+                   libelles_statut.get(statut, statut)]
+                  for numero, sexe, age, affichee, valeur, statut, tranche, date_prelevement in self._filtered_rows()]
+        try:
+            export.exporter_excel(chemin, [(self.parametre_nom, [
+                "N° demande", "Sexe", "Âge", "Tranche d'âge", "Date de prélèvement", "Résultat", "Valeur numérique",
+                "Statut"], lignes)])
+        except Exception as e:
+            ui.erreur(self, "Échec de l'export", f"Impossible d'exporter : {e}")
+            return
+        ui.information(self, "Export terminé", f"{len(lignes)} échantillon(s) exporté(s) : {chemin.name}")
+
+    def _histogramme_impression(self, valeurs: list[float], unite: str) -> PlotWidget:
+        """Histogramme redessiné pour le rapport PDF (toujours sur fond clair)."""
+        plot = PlotWidget(f"{self.parametre_nom}" + (f" ({unite})" if unite else ""), "Effectif")
+        valeurs = sorted(valeurs)
+        bas, haut = valeurs[0], valeurs[-1]
+        if haut == bas:
+            haut = bas + 1
+        nb = max(6, min(25, int(len(valeurs) ** 0.5) + 1))
+        largeur = (haut - bas) / nb
+        comptes = [0] * nb
+        for v in valeurs:
+            comptes[min(int((v - bas) / largeur), nb - 1)] += 1
+        plot.ajouter_barres([bas + i * largeur for i in range(nb)], [bas + (i + 1) * largeur for i in range(nb)],
+                            comptes)
+        if self._intervalle is not None and self._intervalle.limite_basse is not None:
+            plot.ajouter_repere_v(self._intervalle.limite_basse, "statut_ok", 1.6)
+            plot.ajouter_repere_v(self._intervalle.limite_haute, "statut_ok", 1.6)
+        return plot
+
+    def _exporter_pdf(self):
+        lignes = self._filtered_rows()
+        stat_rows = [(r[4], r[5]) for r in lignes if r[4] is not None]
+        result = compute_stats(stat_rows)
+        if result is None:
+            ui.alerte(self, "Rien à exporter", "Aucun échantillon pour ce filtre.")
+            return
+        chemin = ui.demander_fichier_enregistrement(self, "Rapport du paramètre", self._nom_fichier(".pdf"),
+                                                    "Documents PDF (*.pdf)")
+        if not chemin:
+            return
+        tranche, sexe = self._filtre_courant()
+        unite = import_logic.get_unite(self.conn, self.parametre_id)
+        domaine_min, domaine_max = import_logic.get_domaine_mesure(self.conn, self.parametre_id)
+        corps = [export.table_html(["Élément", "Valeur"], [
+            ["Tranche d'âge", tranche or "Toutes"], ["Sexe", sexe or "Tous"], ["Unité", unite or "—"],
+            ["Domaine de mesure", f"{fmt(domaine_min)} – {fmt(domaine_max)}"],
+            ["Prélèvements", f"du {date_fr(min(r[7] for r in lignes))} au {date_fr(max(r[7] for r in lignes))}"],
+        ])]
+        corps.append("<h2>Statistiques descriptives</h2>")
+        corps.append(export.table_html(["Statistique", "Valeur"], [
+            ["Échantillons", result.n], ["Moyenne", fmt(result.moyenne)], ["Médiane", fmt(result.mediane)],
+            ["Écart-type", fmt(result.ecart_type)], ["CV (%)", fmt(result.cv)], ["Min", fmt(result.minimum)],
+            ["Max", fmt(result.maximum)]], {1}))
+        corps.append("<p class='note'>Moyenne et écart-type : résultats numériques uniquement ; médiane, percentiles "
+                     "et effectif incluent les résultats hors domaine de mesure au rang de leur seuil.</p>")
+        corps.append("<h2>Percentiles</h2>")
+        corps.append(export.table_html(["Percentile", "Valeur"],
+                                       [[f"P{p}", fmt(result.percentiles[p])] for p in PERCENTILES], {1}))
+        if getattr(self, "_lignes_tests", None):
+            corps.append("<h2>Tests statistiques</h2>"
+                         + export.table_html(["Test", "Résultat"], [list(l) for l in self._lignes_tests]))
+        corps.append("<h2>Intervalle de référence (CLSI EP28-A3c)</h2>")
+        corps.append(export.table_html(["Indicateur", "Valeur"], [
+            [self.table_intervalle.item(i, 0).text(), self.table_intervalle.item(i, 1).text()]
+            for i in range(self.table_intervalle.rowCount())]))
+        if self._verification is not None:
+            verdict = self._verification[1].verdict
+            classe = "ok" if verdict else ("rejet" if verdict is False else "")
+            corps.append(f"<p class='{classe}'>{export.echapper(self.badge_verification.text())}</p>")
+        if self.label_intervalle.text().strip():
+            corps.append(f"<p class='note'>{export.echapper(self.label_intervalle.text())}</p>")
+        corps.append("<h2>Distribution</h2>" + export.image_html("histo.png", 620))
+        if self.notes_edit.toPlainText().strip():
+            corps.append("<h2>Notes</h2><p>" + export.echapper(self.notes_edit.toPlainText()).replace("\n", "<br>") + "</p>")
+        try:
+            plot = self._histogramme_impression([v for v, _ in stat_rows], unite)
+            export.exporter_pdf(chemin, f"Étude de population — {self.parametre_nom}", "".join(corps),
+                                {"histo.png": plot.image(900, 380)})
+        except Exception as e:
+            ui.erreur(self, "Échec de l'export", f"Impossible de créer le PDF : {e}")
+            return
+        ui.information(self, "Rapport créé", f"Rapport enregistré : {chemin.name}")

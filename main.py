@@ -12,7 +12,14 @@ from pathlib import Path
 # (accès mémoire invalide) tout chargement ultérieur de sentence-transformers dans
 # le module Base de connaissances. Importer torch ici, une seule fois, avant Qt,
 # fixe l'ordre de chargement des DLL pour toute la durée du processus.
-import torch  # noqa: F401
+#
+# v2 : cet import est devenu facultatif. Sans PyTorch installé, l'application
+# démarre quand même (en v1 elle plantait au lancement) ; seul le module Base de
+# connaissances est alors indisponible, avec un message explicite.
+try:
+    import torch  # noqa: F401
+except Exception:  # ImportError, ou DLL manquante / incompatible
+    torch = None
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QMessageBox
 from PySide6.QtGui import QIcon, QGuiApplication
@@ -23,6 +30,8 @@ from core import theme
 from core.logs import configurer_logs, installer_gestionnaire_erreurs_global, LOG_PATH
 from home import HomePage
 from modules.qualite.shell import QualiteModule
+from modules.ciq.shell import CIQModule
+from modules.validation.shell import ValidationModule
 from modules.connaissances.shell import ConnaissancesModule
 
 ICON_PATH = Path(__file__).parent / "assets" / "icon.ico"
@@ -79,6 +88,8 @@ class MainWindow(QMainWindow):
 
     MODULES_DISPONIBLES = {
         "qualite": QualiteModule,
+        "ciq": CIQModule,
+        "validation": ValidationModule,
         "connaissances": ConnaissancesModule,
     }
 
@@ -87,6 +98,14 @@ class MainWindow(QMainWindow):
             classe_module = self.MODULES_DISPONIBLES.get(module_id)
             if classe_module is None:
                 return  # futur module non encore implémenté
+            if module_id == "connaissances" and torch is None:
+                QMessageBox.warning(
+                    self, "Module indisponible",
+                    "La Base de connaissances nécessite PyTorch et sentence-transformers, qui ne sont pas "
+                    "installés (ou pas chargeables) sur ce poste.\n\n"
+                    "Installez-les avec : pip install -r requirements.txt\n\n"
+                    "Les autres modules fonctionnent normalement.")
+                return
             module_widget = classe_module(self.conn)
             module_widget.retour_accueil.connect(self._retour_accueil)
             self.modules[module_id] = module_widget
@@ -126,6 +145,7 @@ def main():
         sys.exit(1)
 
     theme.ThemeManager.instance().load(conn)
+    database.sauvegarde_quotidienne(conn)  # ne lève jamais : un échec est seulement consigné dans le log
 
     window = MainWindow(conn)
     if ICON_PATH.exists():

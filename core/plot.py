@@ -490,11 +490,19 @@ class PlotWidget(QWidget):
         p.restore()
 
         # --- Étiquettes de la marge de droite ---
-        for y, texte, couleur in etiquettes_droite:
-            if ymin <= y <= ymax:
-                p.setPen(self._couleur(couleur))
-                p.drawText(QRectF(zone.right() + 5, Y(y) - fm.height() / 2, marge_d, fm.height()),
-                           Qt.AlignLeft | Qt.AlignVCenter, texte)
+        # Deux repères proches (ex. moyenne et cible) auraient des étiquettes
+        # superposées : on les écarte verticalement d'au moins une hauteur de ligne.
+        visibles = sorted(((Y(y), texte, couleur) for y, texte, couleur in etiquettes_droite if ymin <= y <= ymax),
+                          key=lambda e: e[0])
+        positions = []
+        for py, _, _ in visibles:
+            if positions and py < positions[-1] + fm.height():
+                py = positions[-1] + fm.height()
+            positions.append(py)
+        for py, (_, texte, couleur) in zip(positions, visibles):
+            p.setPen(self._couleur(couleur))
+            p.drawText(QRectF(zone.right() + 5, py - fm.height() / 2, marge_d, fm.height()),
+                       Qt.AlignLeft | Qt.AlignVCenter, texte)
 
         # --- Légende ---
         if entrees:

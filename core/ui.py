@@ -128,12 +128,13 @@ def vider_layout(layout: QLayout, a_partir_de: int = 0) -> None:
     """Retire et détruit les éléments d'un layout à partir de l'index donné."""
     while layout.count() > a_partir_de:
         element = layout.takeAt(a_partir_de)
-        if element.widget():
+        widget = element.widget()  # à mémoriser : après setParent(None), element.widget() vaut None
+        if widget is not None:
             # Masqué et détaché tout de suite : sinon l'ancien widget reste visible
             # (en surimpression) jusqu'à sa destruction différée.
-            element.widget().hide()
-            element.widget().setParent(None)
-            element.widget().deleteLater()
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
         elif element.layout():
             vider_layout(element.layout())
 

@@ -54,6 +54,7 @@ def rechercher(conn, question: str, document_ids: set[int] | None = None) -> lis
 
 
 def _construire_texte_resultats(resultats: list[dict]) -> str:
+    """Version texte brut (copie, tests) — l'écran utilise _construire_html_resultats."""
     if not resultats:
         return "Aucun extrait suffisamment pertinent trouvé pour cette question."
     lignes = ["Voici mes extraits trouvés :", ""]
@@ -62,6 +63,36 @@ def _construire_texte_resultats(resultats: list[dict]) -> str:
         lignes.append(f"\"{r['texte']}\"")
         lignes.append("")
     return "\n".join(lignes).rstrip()
+
+
+MOTS_VIDES = {"le", "la", "les", "de", "des", "du", "un", "une", "et", "ou", "en", "à", "au", "aux", "dans", "par",
+              "pour", "sur", "est", "que", "qui", "quel", "quelle", "quels", "quelles", "comment", "pourquoi", "the",
+              "of", "and", "a", "an", "is", "in", "to", "on", "avec", "sans", "ce", "cette", "ces", "se", "sa", "son"}
+
+
+def _construire_html_resultats(resultats: list[dict], question: str) -> str:
+    """Résultats mis en forme : source et pertinence en tête de chaque extrait,
+    mots de la question surlignés (aide à repérer vite le passage utile)."""
+    import html
+    import re
+    from core import theme
+    pal = theme.palette()
+    if not resultats:
+        return (f"<p style='color:{pal['muted']}'>Aucun extrait suffisamment pertinent trouvé pour cette question. "
+                "Essayez une formulation différente ou des mots-clés plus précis.</p>")
+    mots = [m for m in re.findall(r"\w{3,}", question.lower()) if m not in MOTS_VIDES]
+    motif = re.compile(r"\b(" + "|".join(re.escape(m) for m in mots) + r")", re.IGNORECASE) if mots else None
+    morceaux = [f"<p style='color:{pal['muted']}'>{len(resultats)} extrait(s), du plus au moins pertinent :</p>"]
+    for r in resultats:
+        texte = html.escape(r["texte"])
+        if motif is not None:
+            texte = motif.sub(lambda m: f"<span style='background-color:{pal['selection_bg']};"
+                                        f"color:{pal['selection_text']}'>{m.group(0)}</span>", texte)
+        morceaux.append(
+            f"<p style='margin-top:14px'><b style='color:{pal['accent_text']}'>📖 {html.escape(r['titre'])} — "
+            f"page {r['page']}</b> <span style='color:{pal['muted']}'>· pertinence {round(100 * r['score'])} %</span></p>"
+            f"<p style='margin-left:8px'>{texte}</p>")
+    return "".join(morceaux)
 
 
 class RechercheWidget(QWidget):
@@ -100,5 +131,18 @@ class RechercheWidget(QWidget):
         question = self.champ_recherche.text().strip()
         if not question:
             return
-        resultats = rechercher(self.conn, question, self.document_ids_filtre)
-        self.resultats.setPlainText(_construire_texte_resultats(resultats))
+        if self.conn.execute("SELECT COUNT(*) FROM kb_passages").fetchone()[0] == 0:
+            self.resultats.setHtml("<p>Aucun document n'est encore indexé : importez un PDF avec le bouton "
+                                   "« + Importer » de la barre latérale.</p>")
+            return
+        from PySide6.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.WaitCursor)  # 1er appel : chargement du modèle (quelques secondes)
+        try:
+            resultats = rechercher(self.conn, question, self.document_ids_filtre)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            self.resultats.setHtml(f"<p>La recherche a échoué : {e}</p><p>Le modèle d'embeddings est peut-être "
+                                   "indisponible (première utilisation sans connexion internet ?).</p>")
+            return
+        QApplication.restoreOverrideCursor()
+        self.resultats.setHtml(_construire_html_resultats(resultats, question))

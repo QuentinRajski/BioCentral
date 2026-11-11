@@ -157,11 +157,15 @@ class AnalyteView(QWidget):
         layout_notes.addWidget(self.notes)
         colonne_droite.addWidget(carte_notes)
 
-        separateur.addWidget(droite)
+        # Colonne de droite défilante : sur un écran avec mise à l'échelle 125-150 %,
+        # ses cartes ne tiennent pas toutes en hauteur et se chevauchaient.
+        self.journal.setMinimumHeight(300)
+        zone_droite = ui.zone_defilante(droite)
+        separateur.addWidget(zone_droite)
         separateur.setStretchFactor(0, 3)
         separateur.setStretchFactor(1, 2)
         separateur.widget(0).setMinimumWidth(420)
-        droite.setMinimumWidth(360)
+        zone_droite.setMinimumWidth(380)
         # Répartition initiale 60/40 (sinon Qt part des tailles « idéales » des
         # tableaux, très larges, et écrase les cartes de contrôle).
         separateur.setSizes([600, 400])

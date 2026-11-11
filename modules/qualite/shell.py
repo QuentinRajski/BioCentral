@@ -1,5 +1,5 @@
 """
-Coquille du module Contrôle Qualité : barre latérale (recherche + liste des
+Coquille du module Études de population (anciennement « Contrôle qualité ») : barre latérale (recherche + liste des
 paramètres importés) + zone de contenu qui bascule entre l'écran d'import
 et le tableau de bord du paramètre sélectionné.
 """
@@ -15,7 +15,7 @@ from .import_screen import ImportScreen
 from .dashboard import DashboardWidget
 from .vue_ensemble import VueEnsemble
 
-FIL_ARIANE_PREFIXE = "BioCentral › Contrôle qualité"
+FIL_ARIANE_PREFIXE = "BioCentral › Études de population"
 
 
 class QualiteModule(QWidget):
@@ -122,8 +122,10 @@ class QualiteModule(QWidget):
 
     def _ouvrir_parametre_par_id(self, parametre_id: int, nom: str):
         if parametre_id not in self.dashboards:
-            self.dashboards[parametre_id] = DashboardWidget(self.conn, parametre_id, nom)
-            self.contenu.addWidget(self.dashboards[parametre_id])
+            tableau = DashboardWidget(self.conn, parametre_id, nom)
+            tableau.supprime.connect(lambda pid=parametre_id: self._sur_suppression(pid))
+            self.dashboards[parametre_id] = tableau
+            self.contenu.addWidget(tableau)
         self.contenu.setCurrentWidget(self.dashboards[parametre_id])
         # Le tableau de bord peut être ouvert depuis la vue d'ensemble (double-clic) :
         # on aligne l'état de la barre latérale (case cochée + sélection) dans tous les cas.
@@ -153,4 +155,12 @@ class QualiteModule(QWidget):
             self.contenu.removeWidget(widget)
             widget.deleteLater()
         self.dashboards.clear()
+        self._ouvrir_vue_ensemble()
+
+    def _sur_suppression(self, parametre_id: int):
+        tableau = self.dashboards.pop(parametre_id, None)
+        if tableau is not None:
+            self.contenu.removeWidget(tableau)
+            tableau.deleteLater()
+        self._charger_parametres()
         self._ouvrir_vue_ensemble()

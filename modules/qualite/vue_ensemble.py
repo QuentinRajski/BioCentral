@@ -21,6 +21,7 @@ from core.stats import compute_stats
 
 FRACTION_ROLE = Qt.UserRole + 1
 PARAMETRE_ID_ROLE = Qt.UserRole + 2
+VALEUR_BRUTE_ROLE = Qt.UserRole + 3  # valeur numérique d'origine, pour l'export Excel
 
 COLONNES = ["Paramètre", "Échantillons", "Hommes", "Femmes", "Moyenne", "Médiane", "Écart-type",
             "CV (%)", "Min", "Max", "Hors bornes", "Sous la borne inf.", "Au-dessus borne sup.",
@@ -142,7 +143,11 @@ class VueEnsemble(QWidget):
     def _sur_double_clic(self, item: QTreeWidgetItem, colonne: int):
         parametre_id = item.data(0, PARAMETRE_ID_ROLE)
         if parametre_id is not None:
-            self.parametre_choisi.emit(parametre_id, item.text(0))
+            # Une ligne de tranche d'âge affiche le libellé de la tranche : le nom du
+            # paramètre est porté par sa ligne parente (la v1 ouvrait un tableau de
+            # bord intitulé « Paramètre : 0 à 2 ans »).
+            parent = item.parent()
+            self.parametre_choisi.emit(parametre_id, parent.text(0) if parent is not None else item.text(0))
 
     def _stats_pour(self, parametre_id: int, tranche_age_id: int | None):
         conditions = ["parametre_id = ?", "statut != 'exclu'"]
@@ -172,6 +177,8 @@ class VueEnsemble(QWidget):
 
     def _remplir_ligne(self, item: QTreeWidgetItem, valeurs: list, n_total, couleur: QColor):
         for col, v in enumerate(valeurs):
+            if isinstance(v, (int, float)):
+                item.setData(col, VALEUR_BRUTE_ROLE, v)
             if col in COLONNES_BARRE and n_total:
                 item.setText(col, f"{v} (sur {n_total})")
                 item.setData(col, FRACTION_ROLE, v / n_total)
@@ -234,13 +241,19 @@ class VueEnsemble(QWidget):
             ws.append(entetes)
             for i in range(self.arbre.topLevelItemCount()):
                 item = self.arbre.topLevelItem(i)
-                ws.append([item.text(0), "(tous)"] + [item.text(c) for c in range(1, len(COLONNES))])
+                ws.append([item.text(0), "(tous)"] + [self._valeur_export(item, c) for c in range(1, len(COLONNES))])
                 for j in range(item.childCount()):
                     enfant = item.child(j)
                     ws.append([item.text(0), enfant.text(0)] +
-                              [enfant.text(c) for c in range(1, len(COLONNES))])
+                              [self._valeur_export(enfant, c) for c in range(1, len(COLONNES))])
             wb.save(chemin)
         except Exception as e:
             QMessageBox.critical(self, "Échec de l'export", f"Impossible d'exporter : {e}")
             return
         QMessageBox.information(self, "Export terminé", f"Vue d'ensemble exportée : {Path(chemin).name}")
+
+    @staticmethod
+    def _valeur_export(item: QTreeWidgetItem, col: int):
+        """Nombre brut si la cellule en porte un (exploitable dans Excel), sinon le texte affiché."""
+        brute = item.data(col, VALEUR_BRUTE_ROLE)
+        return brute if brute is not None else item.text(col)

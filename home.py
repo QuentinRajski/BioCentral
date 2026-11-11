@@ -29,10 +29,25 @@ ICON_PATH = Path(__file__).parent / "assets" / "icon.png"
 AVAILABLE_MODULES = [
     {
         "id": "qualite",
-        "nom": "Contrôle qualité",
-        "description": "Centralisation et statistiques des résultats de biologie médicale",
+        "nom": "Études de population",
+        "description": "Statistiques, percentiles et intervalles de référence à partir des exports patients",
         "emoji": "🧪",
         "accent": theme.ACCENT_BLEU,
+    },
+    {
+        "id": "ciq",
+        "nom": "Contrôle interne de qualité",
+        "nom_tuile": "Contrôle interne\nde qualité",
+        "description": "Cartes de Levey-Jennings, règles de Westgard, sigma",
+        "emoji": "📈",
+        "accent": theme.ACCENT_ROSE,
+    },
+    {
+        "id": "validation",
+        "nom": "Validation de méthodes",
+        "description": "Comparaison de méthodes, fidélité, justesse, incertitude de mesure",
+        "emoji": "⚖",
+        "accent": theme.ACCENT_VIOLET,
     },
     {
         "id": "connaissances",
@@ -100,7 +115,8 @@ class HomePage(QWidget):
         grille = QGridLayout(grille_widget)
         grille.setHorizontalSpacing(24)
         grille.setVerticalSpacing(24)
-        colonnes = min(len(AVAILABLE_MODULES), 3)
+        # 4 modules : grille 2 × 2, plus équilibrée qu'une ligne de 3 + 1 carte orpheline.
+        colonnes = 2 if len(AVAILABLE_MODULES) == 4 else min(len(AVAILABLE_MODULES), 3)
         for i, module in enumerate(AVAILABLE_MODULES):
             grille.addWidget(self._creer_carte_module(module), i // colonnes, i % colonnes)
         contenu.addWidget(grille_widget, alignment=Qt.AlignCenter)
@@ -139,7 +155,8 @@ class HomePage(QWidget):
         disposition.setContentsMargins(0, 0, 0, 0)
         disposition.setSpacing(10)
 
-        tuile = QPushButton(f"{module['emoji']}\n{module['nom']}")
+        # « nom_tuile » : coupure de ligne explicite pour un nom trop long pour la tuile.
+        tuile = QPushButton(f"{module['emoji']}\n{module.get('nom_tuile', module['nom'])}")
         tuile.setObjectName("CarteModule")
         tuile.setFixedSize(220, 130)
         tuile.setCursor(Qt.PointingHandCursor)
@@ -162,12 +179,23 @@ class HomePage(QWidget):
         return conteneur
 
     def _afficher_a_propos(self):
-        QMessageBox.information(
-            self, "À propos",
+        boite = QMessageBox(self)
+        boite.setWindowTitle("À propos")
+        boite.setIcon(QMessageBox.Information)
+        boite.setText(
             f"BioCentral — version {VERSION}\n\n"
+            f"Dossier de données :\n{database.get_data_dir()}\n\n"
+            f"Sauvegardes automatiques (une par jour, {database.NOMBRE_SAUVEGARDES_CONSERVEES} conservées) :\n"
+            f"{database.get_backup_dir()}\n\n"
             f"Fichier de log :\n{LOG_PATH}\n\n"
-            "En cas de problème, transmettez ce fichier pour obtenir de l'aide.",
-        )
+            "En cas de problème, transmettez ce fichier pour obtenir de l'aide.")
+        ouvrir = boite.addButton("Ouvrir le dossier de données", QMessageBox.ActionRole)
+        boite.addButton("Fermer", QMessageBox.AcceptRole)
+        boite.exec()
+        if boite.clickedButton() is ouvrir:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(database.get_data_dir())))
 
     def _exporter_bdd(self):
         chemin, _ = QFileDialog.getSaveFileName(
@@ -176,7 +204,7 @@ class HomePage(QWidget):
         if not chemin:
             return
         try:
-            database.export_database(Path(chemin))
+            database.export_database(Path(chemin), self.conn)
         except Exception as e:
             QMessageBox.critical(self, "Échec de l'extraction", f"Impossible d'extraire la base : {e}")
             return
@@ -197,15 +225,26 @@ class HomePage(QWidget):
         )
         if reponse != QMessageBox.Yes:
             return
+        # Vérification AVANT de fermer la connexion active : en v1, un fichier
+        # invalide laissait l'application ouverte avec une base déconnectée.
+        try:
+            database.verifier_fichier_base(Path(chemin))
+        except ValueError as e:
+            QMessageBox.critical(self, "Fichier refusé", str(e))
+            return
         if self.conn is not None:
             try:
+                self.conn.commit()
                 self.conn.close()
             except Exception:
                 pass
         try:
             database.import_database(Path(chemin))
         except Exception as e:
-            QMessageBox.critical(self, "Échec de l'import", f"Impossible d'importer la base : {e}")
+            QMessageBox.critical(self, "Échec de l'import",
+                                 f"Impossible d'importer la base : {e}\n\nL'application va se fermer ; "
+                                 "relancez-la pour retrouver votre base actuelle.")
+            self.demande_fermeture.emit()
             return
         QMessageBox.information(
             self, "Import terminé", "La base a été remplacée. L'application va maintenant se fermer."

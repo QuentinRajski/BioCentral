@@ -250,6 +250,7 @@ class FideliteView(QWidget):
         self.champ_cible.setText("2.1")
         self.champ_limite_biais.setText("4")
         self.table.definir_lignes([list(l) for l in logic.exemple_fidelite()])
+        self.champ_titre.setCursorPosition(0)
         self.calculer()
 
     def nouvelle(self):
@@ -273,6 +274,7 @@ class FideliteView(QWidget):
             champ.setText("" if p.get(cle) is None else fmt(p[cle], 8))
         self.table.definir_lignes([[ident or "", "" if x is None else fmt(x, 10)] for ident, x, _ in etude.donnees])
         self.titre_page.setText(f"Fidélité et justesse — {etude.titre}")
+        self.champ_titre.setCursorPosition(0)
         self.calculer()
 
     def enregistrer(self):

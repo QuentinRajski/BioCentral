@@ -52,6 +52,9 @@ class ConnaissancesModule(QWidget):
         side_layout.addWidget(section_label("Documents"))
         self.liste_documents = QListWidget()
         self.liste_documents.itemChanged.connect(self._sur_filtre_change)
+        self.liste_documents.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.liste_documents.customContextMenuRequested.connect(self._menu_document)
+        self.liste_documents.setToolTip("Cochez les documents où chercher · clic droit : renommer, supprimer")
         side_layout.addWidget(self.liste_documents, stretch=1)
 
         btn_importer = QPushButton("+ Importer")
@@ -129,3 +132,32 @@ class ConnaissancesModule(QWidget):
     def _sur_import_termine(self):
         self._charger_documents()
         self._ouvrir_recherche()
+
+    # --- v2 : gestion des documents (renommer, supprimer) ---
+    def _menu_document(self, position):
+        from PySide6.QtWidgets import QMenu
+        item = self.liste_documents.itemAt(position)
+        if item is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("✎ Renommer…", lambda: self._renommer(item))
+        menu.addAction("🗑 Supprimer…", lambda: self._supprimer(item))
+        menu.exec(self.liste_documents.viewport().mapToGlobal(position))
+
+    def _renommer(self, item):
+        from PySide6.QtWidgets import QInputDialog
+        titre, ok = QInputDialog.getText(self, "Renommer le document", "Nouveau titre :", text=item.text())
+        if ok and titre.strip():
+            self.conn.execute("UPDATE kb_documents SET titre = ? WHERE id = ?",
+                              (titre.strip(), item.data(DOCUMENT_ID_ROLE)))
+            self.conn.commit()
+            self._charger_documents()
+
+    def _supprimer(self, item):
+        from core import ui
+        if ui.confirmer(self, "Supprimer le document",
+                        f"Retirer « {item.text()} » et tous ses passages indexés de la base de connaissances ?\n\n"
+                        "Le fichier PDF d'origine n'est pas touché.", "Supprimer", danger=True):
+            self.conn.execute("DELETE FROM kb_documents WHERE id = ?", (item.data(DOCUMENT_ID_ROLE),))
+            self.conn.commit()
+            self._charger_documents()
