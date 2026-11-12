@@ -22,6 +22,38 @@ ou double-cliquer sur `lancer_biocentral.bat`. Tests automatiques : `lancer_test
 
 PyTorch / sentence-transformers ne servent qu'à la Base de connaissances : sans eux,
 l'application démarre quand même (en v1 elle plantait) et seul ce module est indisponible.
+Pour l'activer : `pip install -r requirements-connaissances.txt`.
+
+## Empaquetage (exécutable Windows et application Mac)
+
+PyInstaller ne fait **pas** de compilation croisée : l'`.exe` se construit sur Windows,
+l'application Mac se construit sur un Mac. Trois façons de faire :
+
+| Cible | Comment | Résultat |
+|---|---|---|
+| Windows | double-clic sur `construire_windows.bat` | `dist\BioCentral.exe` (≈ 95 Mo, un seul fichier) |
+| Mac | sur un Mac : `./construire_mac.sh` | `dist/BioCentral.app` + `dist/BioCentral-mac.zip` |
+| Les deux, sans Mac | GitHub › onglet *Actions* › « Construire les exécutables » › *Run workflow* | à télécharger dans *Artifacts* |
+
+Chaque script lance ensuite l'exécutable avec `--autotest` : il ouvre les modules, fait des
+calculs (Passing-Bablok, intervalles de référence…) et des exports PDF/Excel dans un dossier
+temporaire, puis se ferme avec le code 0 si tout va bien. Rien n'est écrit dans la base.
+
+Points à connaître :
+- **La Base de connaissances n'est pas incluse** dans l'exécutable (PyTorch pèse plusieurs Go) ;
+  le module affiche un message s'il est ouvert. Tous les autres modules sont complets.
+- **Premier lancement de l'`.exe`** : Windows SmartScreen peut afficher « Windows a protégé votre
+  ordinateur » (exécutable non signé) → « Informations complémentaires » › « Exécuter quand même ».
+  Le démarrage prend quelques secondes (décompression de l'exécutable unique).
+- **Sur Mac**, l'application n'est pas signée par un compte Apple Developer : au premier
+  lancement, clic droit › Ouvrir › Ouvrir (ou Réglages Système › Confidentialité et sécurité ›
+  « Ouvrir quand même »). Elle fonctionne sur l'architecture du Mac qui l'a construite
+  (le workflow GitHub produit la version Apple Silicon M1 à M4 ; pour un Mac Intel, lancer
+  `construire_mac.sh` sur ce Mac).
+- Données : `%APPDATA%\BioCentral_v2` sous Windows, `~/Library/Application Support/BioCentral_v2`
+  sous Mac (une base de la v1 sur ce poste est reprise au premier lancement, comme avec `python main.py`).
+- Changer l'icône : modifier puis lancer `python outils/generer_icone.py`. Changer de version :
+  `core/version.py` **et** `outils/version_windows.txt`.
 
 ## Données : la v1 n'est jamais modifiée
 
@@ -108,7 +140,9 @@ restent sous la responsabilité du biologiste.
 
 ## Ce qu'il reste à faire
 
-- Empaquetage PyInstaller en `.exe` (non fait, non testé).
+- Version Mac : configuration et workflow prêts, mais pas encore construite ni essayée sur un vrai Mac.
+- Signature de code (certificat Windows / Apple Developer) pour supprimer les avertissements
+  au premier lancement.
 - Tester l'import avec un deuxième paramètre (structure de colonnes identique à LH supposée).
 - Import direct des fichiers d'export CIQ des automates (format propre à chaque fournisseur :
   aujourd'hui, collage depuis Excel ou fichier Date | Valeur).

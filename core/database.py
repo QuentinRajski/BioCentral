@@ -23,8 +23,11 @@ import logging
 import os
 import shutil
 import sqlite3
+import sys
 from datetime import date, datetime
 from pathlib import Path
+
+from core.chemins import ressource
 
 APP_NAME = "BioCentral"
 DATA_DIR_NAME = "BioCentral_v2"        # dossier de données de cette version
@@ -33,19 +36,25 @@ ENV_DATA_DIR = "BIOCENTRAL_DATA_DIR"
 DB_FILENAME = "biocentral.db"
 BACKUP_DIRNAME = "sauvegardes"
 NOMBRE_SAUVEGARDES_CONSERVEES = 10
-SCHEMA_FILE = Path(__file__).parent.parent / "schema.sql"
+SCHEMA_FILE = ressource("schema.sql")  # fonctionne aussi depuis l'exécutable empaqueté
 
 log = logging.getLogger(__name__)
+
+
+def _dossier_donnees_systeme() -> Path:
+    """Emplacement conventionnel des données d'application de chaque système :
+    Windows %APPDATA%, macOS ~/Library/Application Support, Linux ~/.local/share."""
+    if os.getenv("APPDATA"):
+        return Path(os.environ["APPDATA"])
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    return Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
 
 
 def get_data_dir() -> Path:
     """Dossier de données persistant, indépendant de l'emplacement de l'exécutable."""
     force = os.getenv(ENV_DATA_DIR)
-    if force:
-        data_dir = Path(force)
-    else:
-        base = os.getenv("APPDATA") or str(Path.home())
-        data_dir = Path(base) / DATA_DIR_NAME
+    data_dir = Path(force) if force else _dossier_donnees_systeme() / DATA_DIR_NAME
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 

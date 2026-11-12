@@ -242,3 +242,14 @@ class TestEtudesValidation(TestAvecBase):
         self.assertEqual(len(logic.charger_etude(self.conn, eid).donnees), 1)
         logic.supprimer_etude(self.conn, eid)
         self.assertEqual(logic.lister_etudes(self.conn), [])
+
+
+class TestChemins(TestAvecBase):
+    def test_ressources_livrees_presentes(self):
+        """Fichiers que biocentral.spec embarque dans l'exécutable : ils doivent exister."""
+        from core.chemins import ressource
+        for morceaux in (("schema.sql",), ("assets", "icon.png"), ("assets", "icon.ico"), ("assets", "icon.icns")):
+            self.assertTrue(ressource(*morceaux).exists(), morceaux)
+
+    def test_dossier_de_donnees_force(self):
+        self.assertEqual(self.database.get_data_dir(), self.dossier)

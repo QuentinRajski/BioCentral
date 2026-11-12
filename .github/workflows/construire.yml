@@ -1,0 +1,72 @@
+# Construit BioCentral pour Windows ET macOS sur les machines de GitHub, sans avoir de Mac.
+#
+# Lancement : onglet « Actions » du dépôt GitHub > « Construire les exécutables » > « Run workflow »
+# (ou automatiquement en poussant une étiquette de version, ex. : git tag v2.0.0 && git push --tags).
+# Résultat : en bas de la page de l'exécution, rubrique « Artifacts » :
+#   BioCentral-Windows   -> BioCentral.exe
+#   BioCentral-macOS     -> BioCentral-mac.zip (BioCentral.app, Mac Apple Silicon M1/M2/M3/M4)
+#
+# Chaque exécutable est vérifié par « --autotest » (ouvre les modules, fait un calcul et des
+# exports PDF/Excel, puis se ferme) avant d'être publié.
+
+name: Construire les exécutables
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  construire:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nom: BioCentral-Windows
+          - os: macos-latest          # Apple Silicon (arm64)
+            nom: BioCentral-macOS
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Dépendances
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Tests automatiques
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: Empaquetage PyInstaller
+        run: python -m PyInstaller --noconfirm --clean biocentral.spec
+
+      - name: Vérification de l'exécutable (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          export BIOCENTRAL_DATA_DIR="$RUNNER_TEMP/autotest"
+          ./dist/BioCentral.exe --autotest
+
+      - name: Vérification, signature ad hoc et archive (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          BIOCENTRAL_DATA_DIR="$RUNNER_TEMP/autotest" ./dist/BioCentral.app/Contents/MacOS/BioCentral --autotest
+          codesign --force --deep --sign - dist/BioCentral.app
+          cd dist && ditto -c -k --keepParent BioCentral.app BioCentral-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.nom }}
+          path: |
+            dist/BioCentral.exe
+            dist/BioCentral-mac.zip
+          if-no-files-found: error
+          retention-days: 30

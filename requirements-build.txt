@@ -1,0 +1,3 @@
+# Outils nécessaires uniquement pour construire l'exécutable (pas pour utiliser BioCentral).
+pyinstaller==6.22.3
+pillow>=10   # utilisé par PyInstaller pour l'icône, et par outils/generer_icone.py

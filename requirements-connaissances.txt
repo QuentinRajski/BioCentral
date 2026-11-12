@@ -1,0 +1,3 @@
+# Uniquement pour le module Base de connaissances (recherche sémantique dans des PDF).
+# Installe PyTorch (volumineux). Sans ce paquet, les autres modules fonctionnent normalement.
+sentence-transformers>=2.2

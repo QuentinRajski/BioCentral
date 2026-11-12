@@ -27,6 +27,7 @@ from PySide6.QtCore import Qt
 
 from core import database
 from core import theme
+from core.chemins import ressource
 from core.logs import configurer_logs, installer_gestionnaire_erreurs_global, LOG_PATH
 from home import HomePage
 from modules.qualite.shell import QualiteModule
@@ -34,7 +35,7 @@ from modules.ciq.shell import CIQModule
 from modules.validation.shell import ValidationModule
 from modules.connaissances.shell import ConnaissancesModule
 
-ICON_PATH = Path(__file__).parent / "assets" / "icon.ico"
+ICON_PATH = ressource("assets", "icon.ico" if sys.platform == "win32" else "icon.png")
 
 
 def _corriger_icone_barre_des_taches_windows():
@@ -152,7 +153,79 @@ def main():
         window.setWindowIcon(QIcon(str(ICON_PATH)))
     window.showMaximized()
 
+    if "--autotest" in sys.argv:
+        _programmer_autotest(app, window)
     sys.exit(app.exec())
+
+
+def _programmer_autotest(app: QApplication, window: "MainWindow") -> None:
+    """
+    `BioCentral --autotest` : ouvre chaque module puis quitte, avec le code de
+    sortie 0 si aucune erreur n'est survenue (1 sinon). Sert à vérifier un
+    exécutable fraîchement construit, sur Windows comme sur Mac (intégration
+    continue), sans clic humain. Le résultat est aussi écrit dans le log.
+    """
+    from PySide6.QtCore import QTimer
+    erreurs: list[str] = []
+
+    def noter(type_exc, valeur, tb):
+        import traceback
+        erreurs.append("".join(traceback.format_exception(type_exc, valeur, tb)))
+        logging.error("Autotest — erreur :\n%s", erreurs[-1])
+
+    sys.excepthook = noter  # pas de boîte de dialogue bloquante pendant l'autotest
+
+    def parcourir():
+        modules = [m for m in MainWindow.MODULES_DISPONIBLES if m != "connaissances" or torch is not None]
+        for module_id in modules:
+            try:
+                window._ouvrir_module(module_id)
+                app.processEvents()
+                window._retour_accueil()
+                app.processEvents()
+            except Exception:
+                noter(*sys.exc_info())
+        try:
+            _autotest_calculs_et_exports(window)
+        except Exception:
+            noter(*sys.exc_info())
+        logging.info("Autotest : %d module(s) ouverts, %d erreur(s)", len(modules), len(erreurs))
+        print(f"AUTOTEST {'OK' if not erreurs else 'ECHEC'} : {len(modules)} modules, {len(erreurs)} erreur(s)",
+              flush=True)
+        app.exit(1 if erreurs else 0)
+
+    QTimer.singleShot(1500, parcourir)
+
+
+def _autotest_calculs_et_exports(window: "MainWindow") -> None:
+    """Sollicite scipy, numpy, openpyxl et l'écriture PDF de Qt : ce sont les parties
+    qu'un empaquetage incomplet casse en premier. N'écrit rien dans la base de
+    données (fichiers dans un dossier temporaire supprimé ensuite)."""
+    import shutil
+    import tempfile
+    from core import comparaison_methodes, export, fidelite, intervalle_reference, westgard
+    from modules.validation import logic as validation
+
+    paires = validation.exemple_comparaison()
+    analyse = comparaison_methodes.analyser([x for _, x, _ in paires], [y for _, _, y in paires])
+    assert analyse.passing_bablok is not None and analyse.deming is not None
+    serie = validation.exemple_fidelite()
+    fidelite.composantes_variance({s: [v for s2, v in serie if s2 == s] for s, _ in serie})
+    assert intervalle_reference.estimer(range(150)).ic_basse is not None
+    assert westgard.evaluer([0.1, 2.5, 3.2])[-1]
+
+    vue = window.modules["validation"].comparaison
+    vue._charger_exemple()
+    dossier = Path(tempfile.mkdtemp(prefix="biocentral_autotest_"))
+    try:
+        export.exporter_pdf(dossier / "test.pdf", "Autotest", "<p>Graphique</p>" + export.image_html("g.png"),
+                            {"g.png": vue.plot_regression.image(600, 300)})
+        export.exporter_excel(dossier / "test.xlsx", [("Test", ["x", "y"], [[1, 2.5]])])
+        assert (dossier / "test.pdf").stat().st_size > 1000 and (dossier / "test.xlsx").exists()
+        assert export.lire_tableau(dossier / "test.xlsx")[1] == [1, 2.5]
+    finally:
+        shutil.rmtree(dossier, ignore_errors=True)
+        vue.nouvelle()
 
 
 if __name__ == "__main__":

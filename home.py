@@ -21,8 +21,9 @@ from core import database, theme
 from core.version import VERSION
 from core.logs import LOG_PATH
 from core.theme_toggle import ThemeToggleButton
+from core.chemins import ressource
 
-ICON_PATH = Path(__file__).parent / "assets" / "icon.png"
+ICON_PATH = ressource("assets", "icon.png")
 
 # Registre des modules disponibles. Un futur module ajoute simplement une entrée ici
 # (la grille de cartes s'adapte automatiquement au nombre de modules).

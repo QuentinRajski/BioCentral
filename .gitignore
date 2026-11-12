@@ -25,3 +25,7 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Empaquetage : on versionne la configuration PyInstaller de BioCentral
+!biocentral.spec
+.venv-build/
