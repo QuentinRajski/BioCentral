@@ -12,9 +12,10 @@
 name: Construire les exécutables
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:      # bouton « Run workflow » (visible une fois ce fichier sur la branche main)
   push:
     tags: ["v*"]
+    branches: ["v2-ameliorations"]   # chaque envoi sur la branche v2 reconstruit les exécutables
 
 jobs:
   construire:
