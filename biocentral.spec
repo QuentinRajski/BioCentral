@@ -79,8 +79,18 @@ if MAC:
         },
     )
 else:
+    # Écran de démarrage affiché dès le double-clic : l'exécutable unique met plusieurs
+    # secondes à se décompresser (bien plus au 1er lancement, analyse antivirus), et
+    # sans lui l'utilisateur croit que rien ne se passe. Fermé par main.py.
+    splash = Splash(
+        str(RACINE / "assets" / "splash.png"),
+        binaries=a.binaries,
+        datas=a.datas,
+        text_pos=None,
+        always_on_top=True,
+    )
     exe = EXE(
-        pyz, a.scripts, a.binaries, a.datas, [],
+        pyz, a.scripts, splash, splash.binaries, a.binaries, a.datas, [],
         name="BioCentral",
         debug=False, strip=False,
         upx=False,                  # UPX déclenche des faux positifs d'antivirus

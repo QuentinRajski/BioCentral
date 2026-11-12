@@ -137,6 +137,7 @@ def main():
         conn = database.get_connection()
     except Exception:
         logging.exception("Échec au tout premier démarrage (connexion à la base)")
+        _fermer_ecran_demarrage()  # sinon l'écran de démarrage (toujours au premier plan) masquerait le message
         QMessageBox.critical(
             None, "Impossible de démarrer",
             "BioCentral n'a pas pu accéder à sa base de données.\n\n"
@@ -152,10 +153,21 @@ def main():
     if ICON_PATH.exists():
         window.setWindowIcon(QIcon(str(ICON_PATH)))
     window.showMaximized()
+    _fermer_ecran_demarrage()
 
     if "--autotest" in sys.argv:
         _programmer_autotest(app, window)
     sys.exit(app.exec())
+
+
+def _fermer_ecran_demarrage() -> None:
+    """Ferme l'écran de démarrage de l'exécutable Windows (voir biocentral.spec).
+    Le module pyi_splash n'existe que dans l'exécutable : sans effet sinon."""
+    try:
+        import pyi_splash  # type: ignore[import-not-found]
+        pyi_splash.close()
+    except Exception:
+        pass
 
 
 def _programmer_autotest(app: QApplication, window: "MainWindow") -> None:

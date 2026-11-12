@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QGraphicsDropShadowEffect,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtGui import QPixmap, QColor, QGuiApplication
 
 from core import database, theme
 from core.version import VERSION
@@ -91,10 +91,17 @@ class HomePage(QWidget):
         contenu.setSpacing(16)
         contenu.setAlignment(Qt.AlignCenter)
 
+        # Sur un portable (souvent ~720 px de haut utiles une fois la mise à l'échelle
+        # Windows appliquée), tout doit tenir sans chevauchement : logo et grille
+        # s'adaptent à la taille réelle de l'écran.
+        ecran = QGuiApplication.primaryScreen()
+        disponible = ecran.availableGeometry() if ecran else None
+        petit_ecran = disponible is not None and disponible.height() < 900
         if ICON_PATH.exists():
+            taille_logo = 96 if petit_ecran else 150
             logo = QLabel()
             logo.setPixmap(QPixmap(str(ICON_PATH)).scaled(
-                150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                taille_logo, taille_logo, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             logo.setAlignment(Qt.AlignCenter)
             logo.setTextInteractionFlags(Qt.NoTextInteraction)
             contenu.addWidget(logo)
@@ -110,14 +117,20 @@ class HomePage(QWidget):
         sous_titre.setObjectName("Muted")
         sous_titre.setAlignment(Qt.AlignCenter)
         contenu.addWidget(sous_titre)
-        contenu.addSpacing(32)
+        contenu.addSpacing(20 if petit_ecran else 32)
 
         grille_widget = QWidget()
         grille = QGridLayout(grille_widget)
         grille.setHorizontalSpacing(24)
         grille.setVerticalSpacing(24)
-        # 4 modules : grille 2 × 2, plus équilibrée qu'une ligne de 3 + 1 carte orpheline.
-        colonnes = 2 if len(AVAILABLE_MODULES) == 4 else min(len(AVAILABLE_MODULES), 3)
+        # Toutes les cartes sur une ligne si la largeur le permet (une seule rangée tient
+        # en hauteur même sur un portable) ; sinon grille 2 × 2.
+        n = len(AVAILABLE_MODULES)
+        largeur_une_ligne = n * 220 + (n - 1) * 24 + 2 * 24
+        if disponible is None or disponible.width() >= largeur_une_ligne:
+            colonnes = n
+        else:
+            colonnes = 2 if n == 4 else min(n, 3)
         for i, module in enumerate(AVAILABLE_MODULES):
             grille.addWidget(self._creer_carte_module(module), i // colonnes, i % colonnes)
         contenu.addWidget(grille_widget, alignment=Qt.AlignCenter)

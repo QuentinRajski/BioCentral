@@ -56,7 +56,35 @@ def main():
     image.save(ASSETS / "icon.png")
     image.save(ASSETS / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     image.save(ASSETS / "icon.icns")
-    print("Icônes écrites dans", ASSETS)
+    ecran_demarrage(image).save(ASSETS / "splash.png")
+    print("Icônes et écran de démarrage écrits dans", ASSETS)
+
+
+def ecran_demarrage(icone: Image.Image) -> Image.Image:
+    """Image affichée par l'exécutable Windows dès le double-clic, pendant les
+    quelques secondes de décompression (sinon l'utilisateur croit que rien ne se passe)."""
+    from PIL import ImageFont
+    largeur, hauteur = 520, 300
+    fond = Image.new("RGB", (largeur, hauteur), (247, 246, 242))
+    d = ImageDraw.Draw(fond)
+    d.rectangle([0, 0, largeur, 6], fill=(12, 68, 124))
+    petite = icone.resize((120, 120), Image.LANCZOS)
+    fond.paste(petite, ((largeur - 120) // 2, 46), petite)
+
+    def police(taille, gras=False):
+        for nom in (("segoeuib.ttf" if gras else "segoeui.ttf"), "arial.ttf", "DejaVuSans.ttf"):
+            try:
+                return ImageFont.truetype(nom, taille)
+            except OSError:
+                continue
+        return ImageFont.load_default()
+
+    for texte, y, taille, gras, couleur in (("BioCentral", 182, 34, True, (12, 68, 124)),
+                                            ("Démarrage en cours…", 232, 17, False, (95, 94, 90))):
+        f = police(taille, gras)
+        largeur_texte = d.textlength(texte, font=f)
+        d.text(((largeur - largeur_texte) / 2, y), texte, font=f, fill=couleur)
+    return fond
 
 
 if __name__ == "__main__":
