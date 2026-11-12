@@ -1,0 +1,4 @@
+# Fins de ligne imposées : un script shell avec des fins de ligne Windows ne s'exécute pas sur Mac.
+*.sh  text eol=lf
+*.bat text eol=crlf
+*.yml text eol=lf
